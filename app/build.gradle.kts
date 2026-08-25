@@ -54,8 +54,13 @@ fun generaSorgenteChangelog(): String {
 }
 
 val changelogGeneratoDir = layout.buildDirectory.dir("generated/changelog")
+val gitHeadCommit: String = runGit("rev-parse", "HEAD")
 
 val generaChangelog = tasks.register("generaChangelog") {
+    // Senza un input dichiarato, Gradle non avrebbe modo di accorgersi che la storia git è
+    // cambiata da una build all'altra e considererebbe il task sempre up-to-date dopo la prima
+    // esecuzione: l'HEAD commit forza la rigenerazione a ogni nuovo commit.
+    inputs.property("gitHeadCommit", gitHeadCommit)
     val outputDir = changelogGeneratoDir
     outputs.dir(outputDir)
     doLast {
