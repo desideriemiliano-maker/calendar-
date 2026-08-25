@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Delete
@@ -21,11 +22,15 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -41,10 +46,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
 import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
+import com.desideri.viaggiotemplate.domain.model.OrarioFisso
+import com.desideri.viaggiotemplate.domain.model.TemplateSlot
+import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 import java.time.Instant
@@ -118,17 +127,42 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                         )
                         val (inizioInput, fineInput) = stato.orariAncoreInput[slot.id]
                             ?: (LocalTime.of(9, 0) to LocalTime.of(9, 30))
-                        RigaOrario(
-                            inizio = inizioInput,
-                            fine = fineInput,
-                            onCambia = { i, f -> viewModel.aggiornaOrarioAncora(slot.id, i, f) }
-                        )
+                        if (trattaAncora != null && trattaAncora.orariFissi.isNotEmpty()) {
+                            SelettoreOrarioAncora(
+                                orariFissi = trattaAncora.orariFissi,
+                                inizio = inizioInput,
+                                fine = fineInput,
+                                onCambia = { i, f -> viewModel.aggiornaOrarioAncora(slot.id, i, f) }
+                            )
+                        } else {
+                            RigaOrario(
+                                inizio = inizioInput,
+                                fine = fineInput,
+                                onCambia = { i, f -> viewModel.aggiornaOrarioAncora(slot.id, i, f) }
+                            )
+                        }
                     }
                 }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { viewModel.calcola() }) { Text("Calcola orari") }
                         TextButton(onClick = { viewModel.pulisciRisultati() }) { Text("Pulisci") }
+                    }
+                }
+                item {
+                    var mostraDialogAggiungi by remember { mutableStateOf(false) }
+                    TextButton(onClick = { mostraDialogAggiungi = true }) { Text("+ Aggiungi tratta a questo viaggio") }
+                    if (mostraDialogAggiungi) {
+                        DialogAggiungiTratta(
+                            libreria = stato.libreriaTratte,
+                            slotsCorrenti = stato.templateSelezionato?.slotsOrdinati ?: emptyList(),
+                            nomeTratta = { id -> stato.tratte[id]?.nome ?: id },
+                            onConferma = { trattaId, dopoSlotId ->
+                                viewModel.aggiungiTrattaExtra(trattaId, dopoSlotId)
+                                mostraDialogAggiungi = false
+                            },
+                            onDismiss = { mostraDialogAggiungi = false }
+                        )
                     }
                 }
             }
@@ -197,6 +231,142 @@ private fun RigaOrario(
             onValoreCambiato = { onCambia(inizio, it) },
             modifier = Modifier.fillMaxWidth().weight(1f)
         )
+    }
+}
+
+/**
+ * Per una tratta-ancora TRENO con orari fissi configurati: scelta tra un orario fisso
+ * (dropdown, tra quelli definiti sulla Tratta) e l'orario ricorrente inserito a mano.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelettoreOrarioAncora(
+    orariFissi: List<OrarioFisso>,
+    inizio: LocalTime,
+    fine: LocalTime,
+    onCambia: (LocalTime, LocalTime) -> Unit
+) {
+    var usaFisso by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = { usaFisso = false }) { Text(if (!usaFisso) "● Ricorrente" else "Ricorrente") }
+            TextButton(onClick = {
+                usaFisso = true
+                orariFissi.firstOrNull()?.let { onCambia(it.partenza, it.arrivo) }
+            }) { Text(if (usaFisso) "● Fisso" else "Fisso") }
+        }
+        if (usaFisso) {
+            var espanso by remember { mutableStateOf(false) }
+            val selezionato = orariFissi.firstOrNull { it.partenza == inizio && it.arrivo == fine } ?: orariFissi.first()
+            fun etichetta(o: OrarioFisso) = (o.etichetta?.let { "$it — " } ?: "") + "${o.partenza.toStringHHmm()} → ${o.arrivo.toStringHHmm()}"
+            ExposedDropdownMenuBox(expanded = espanso, onExpandedChange = { espanso = it }) {
+                OutlinedTextField(
+                    value = etichetta(selezionato),
+                    onValueChange = {}, readOnly = true,
+                    label = { Text("Orario fisso") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = espanso) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+                )
+                DropdownMenu(expanded = espanso, onDismissRequest = { espanso = false }) {
+                    orariFissi.forEach { fisso ->
+                        DropdownMenuItem(
+                            text = { Text(etichetta(fisso)) },
+                            onClick = { onCambia(fisso.partenza, fisso.arrivo); espanso = false }
+                        )
+                    }
+                }
+            }
+        } else {
+            RigaOrario(inizio = inizio, fine = fine, onCambia = onCambia)
+        }
+    }
+}
+
+/** Dialog per aggiungere temporaneamente una tratta della libreria a questa sola esecuzione. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DialogAggiungiTratta(
+    libreria: List<Tratta>,
+    slotsCorrenti: List<TemplateSlot>,
+    nomeTratta: (String) -> String,
+    onConferma: (trattaId: String, dopoSlotId: String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var trattaSelezionata by remember { mutableStateOf(libreria.firstOrNull()) }
+    var dopoSlotId by remember { mutableStateOf(slotsCorrenti.lastOrNull()?.id) }
+    var espansoTratta by remember { mutableStateOf(false) }
+    var espansoPosizione by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(24.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Aggiungi una tratta a questo viaggio", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Valida solo per questa esecuzione: non modifica il template salvato.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                ExposedDropdownMenuBox(expanded = espansoTratta, onExpandedChange = { espansoTratta = it }) {
+                    OutlinedTextField(
+                        value = trattaSelezionata?.nome ?: "Scegli una tratta",
+                        onValueChange = {}, readOnly = true,
+                        label = { Text("Tratta") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = espansoTratta) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+                    )
+                    DropdownMenu(
+                        expanded = espansoTratta,
+                        onDismissRequest = { espansoTratta = false },
+                        modifier = Modifier.heightIn(max = 320.dp)
+                    ) {
+                        libreria.forEach { tratta ->
+                            DropdownMenuItem(
+                                text = { Text(tratta.nome) },
+                                onClick = { trattaSelezionata = tratta; espansoTratta = false }
+                            )
+                        }
+                    }
+                }
+
+                val etichettaPosizione = dopoSlotId
+                    ?.let { id -> slotsCorrenti.firstOrNull { it.id == id } }
+                    ?.let { "Dopo: ${nomeTratta(it.trattaSelezionataId)}" }
+                    ?: "All'inizio del viaggio"
+                ExposedDropdownMenuBox(expanded = espansoPosizione, onExpandedChange = { espansoPosizione = it }) {
+                    OutlinedTextField(
+                        value = etichettaPosizione,
+                        onValueChange = {}, readOnly = true,
+                        label = { Text("Posizione") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = espansoPosizione) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+                    )
+                    DropdownMenu(
+                        expanded = espansoPosizione,
+                        onDismissRequest = { espansoPosizione = false },
+                        modifier = Modifier.heightIn(max = 320.dp)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("All'inizio del viaggio") },
+                            onClick = { dopoSlotId = null; espansoPosizione = false }
+                        )
+                        slotsCorrenti.forEach { slot ->
+                            DropdownMenuItem(
+                                text = { Text("Dopo: ${nomeTratta(slot.trattaSelezionataId)}") },
+                                onClick = { dopoSlotId = slot.id; espansoPosizione = false }
+                            )
+                        }
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Annulla") }
+                    TextButton(
+                        onClick = { trattaSelezionata?.let { onConferma(it.id, dopoSlotId) } },
+                        enabled = trattaSelezionata != null
+                    ) { Text("Aggiungi") }
+                }
+            }
+        }
     }
 }
 

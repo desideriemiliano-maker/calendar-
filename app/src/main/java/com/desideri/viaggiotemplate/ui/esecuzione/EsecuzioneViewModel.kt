@@ -12,6 +12,7 @@ import com.desideri.viaggiotemplate.domain.calcolo.SlotRisolto
 import com.desideri.viaggiotemplate.domain.calendar.CalendarWriter
 import com.desideri.viaggiotemplate.domain.calendar.CalendarioDisponibile
 import com.desideri.viaggiotemplate.domain.model.Template
+import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.repository.TemplateRepository
 import com.desideri.viaggiotemplate.repository.TrattaRepository
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalTime
+import java.util.UUID
 
 data class StatoEsecuzione(
     val templateEntities: List<TemplateEntity> = emptyList(),
@@ -42,6 +44,10 @@ data class StatoEsecuzione(
      * calcolo, così le tratte tra due ancore si ricalcolano in modo coerente.
      */
     val ancoreManuali: Map<String, Pair<LocalTime, LocalTime>> = emptyMap(),
+    /** Slot esclusi da questo calcolo (tratte eliminate dall'utente): il motore le salta, ricalcolando le tratte adiacenti come se fossero direttamente consecutive. */
+    val slotEsclusi: Set<String> = emptySet(),
+    /** Tutta la libreria Tratte, per poter aggiungere una tratta extra a questa sola esecuzione. */
+    val libreriaTratte: List<Tratta> = emptyList(),
     val calendarioConfigurato: CalendarioDisponibile? = null,
     val calendarioConfiguratoVerificato: Boolean = false,
     val messaggio: String? = null
@@ -62,6 +68,11 @@ class EsecuzioneViewModel(
         viewModelScope.launch {
             templateRepository.osservaTemplateEntities().collect { lista ->
                 _stato.value = _stato.value.copy(templateEntities = lista)
+            }
+        }
+        viewModelScope.launch {
+            trattaRepository.osservaTratte().collect { lista ->
+                _stato.value = _stato.value.copy(libreriaTratte = lista)
             }
         }
     }
@@ -87,6 +98,7 @@ class EsecuzioneViewModel(
                 tratte = tratteMap,
                 eventiCalcolati = emptyList(),
                 ancoreManuali = emptyMap(),
+                slotEsclusi = emptySet(),
                 orariAncoreInput = orariAncoreInput
             )
         }
@@ -115,15 +127,57 @@ class EsecuzioneViewModel(
         )
     }
 
-    /** Calcolo da zero: riparte dalle sole ancore del template, scartando eventuali correzioni manuali precedenti. */
+    /** Calcolo da zero: riparte dalle sole ancore del template, scartando correzioni manuali, esclusioni e tratte extra aggiunte in precedenza. */
     fun calcola() {
-        _stato.value = _stato.value.copy(ancoreManuali = emptyMap())
+        val template = _stato.value.templateSelezionato
+        _stato.value = _stato.value.copy(
+            templateSelezionato = template?.let { it.copy(slots = it.slots.filter { s -> !s.extra }) },
+            ancoreManuali = emptyMap(),
+            slotEsclusi = emptySet()
+        )
         eseguiCalcolo()
     }
 
-    /** Pulisce i risultati del calcolo, le correzioni manuali e l'esito dell'ultimo inserimento a calendario. */
+    /** Pulisce i risultati del calcolo, le correzioni manuali, le esclusioni e l'esito dell'ultimo inserimento a calendario. */
     fun pulisciRisultati() {
-        _stato.value = _stato.value.copy(eventiCalcolati = emptyList(), ancoreManuali = emptyMap(), messaggio = null)
+        _stato.value = _stato.value.copy(
+            eventiCalcolati = emptyList(),
+            ancoreManuali = emptyMap(),
+            slotEsclusi = emptySet(),
+            messaggio = null
+        )
+    }
+
+    /**
+     * Aggiunge temporaneamente una tratta della libreria a questa sola esecuzione (non tocca il
+     * template salvato): inserita subito dopo `dopoSlotId` (o in testa se null), rinumerando l'ordine.
+     */
+    fun aggiungiTrattaExtra(trattaId: String, dopoSlotId: String?) {
+        val s = _stato.value
+        val template = s.templateSelezionato ?: return
+        val tratta = s.libreriaTratte.firstOrNull { it.id == trattaId } ?: return
+
+        val ordinati = template.slotsOrdinati
+        val indiceInserimento = if (dopoSlotId == null) 0 else {
+            val i = ordinati.indexOfFirst { it.id == dopoSlotId }
+            if (i < 0) ordinati.size else i + 1
+        }
+        val nuovoSlot = TemplateSlot(
+            id = UUID.randomUUID().toString(),
+            ordine = indiceInserimento,
+            ancora = false,
+            trattaCandidatiIds = listOf(trattaId),
+            trattaSelezionataId = trattaId,
+            extra = true
+        )
+        val nuoviSlots = (ordinati.toMutableList().apply { add(indiceInserimento, nuovoSlot) })
+            .mapIndexed { i, slot -> slot.copy(ordine = i) }
+
+        _stato.value = s.copy(
+            templateSelezionato = template.copy(slots = nuoviSlots),
+            tratte = s.tratte + (trattaId to tratta)
+        )
+        eseguiCalcolo()
     }
 
     /** Sostituisce la tratta selezionata per uno slot (scelta di un'alternativa) e ricalcola, mantenendo le eventuali ancore manuali. */
@@ -148,22 +202,31 @@ class EsecuzioneViewModel(
         eseguiCalcolo()
     }
 
-    /** Rimuove una tratta proposta dai risultati (non tocca il template, solo l'esito di questo calcolo). */
+    /**
+     * Esclude una tratta da questo calcolo e lo rilancia subito: le tratte adiacenti a quella
+     * eliminata si ricalcolano tenendo conto del margine reciproco, come se non facesse parte
+     * del viaggio (non tocca il template salvato, solo l'esito di questa esecuzione).
+     */
     fun eliminaEvento(templateSlotId: String) {
         val s = _stato.value
         _stato.value = s.copy(
-            eventiCalcolati = s.eventiCalcolati.filterNot { it.templateSlotId == templateSlotId },
+            slotEsclusi = s.slotEsclusi + templateSlotId,
             ancoreManuali = s.ancoreManuali - templateSlotId
         )
+        eseguiCalcolo()
     }
 
     private fun eseguiCalcolo() {
         val s = _stato.value
         val template = s.templateSelezionato ?: return
-        val slotsOrdinati = template.slotsOrdinati
+        val slotsOrdinati = template.slotsOrdinati.filterNot { it.id in s.slotEsclusi }
+        if (slotsOrdinati.isEmpty()) {
+            _stato.value = s.copy(eventiCalcolati = emptyList(), messaggio = "Tutte le tratte sono state escluse dal calcolo")
+            return
+        }
         val slotsAncora = slotsOrdinati.withIndex().filter { it.value.ancora }
         if (slotsAncora.isEmpty()) {
-            _stato.value = s.copy(messaggio = "Il template non ha nessuna tratta ancora impostata")
+            _stato.value = s.copy(eventiCalcolati = emptyList(), messaggio = "Il template non ha nessuna tratta ancora impostata tra quelle incluse nel calcolo")
             return
         }
 

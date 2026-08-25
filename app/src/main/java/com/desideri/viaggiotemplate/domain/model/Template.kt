@@ -11,7 +11,9 @@ data class TemplateSlot(
     val ordine: Int,
     val ancora: Boolean,
     val trattaCandidatiIds: List<String>,
-    val trattaSelezionataId: String
+    val trattaSelezionataId: String,
+    /** True per una tratta aggiunta al volo durante l'esecuzione (non fa parte del template salvato). */
+    val extra: Boolean = false
 )
 
 data class Template(
