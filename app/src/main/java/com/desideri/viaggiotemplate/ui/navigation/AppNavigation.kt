@@ -59,7 +59,7 @@ fun AppNavigation() {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Viaggio Template") },
+                title = { Text("Calendario++") },
                 actions = {
                     IconButton(onClick = { menuEspanso = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "Altre opzioni")
