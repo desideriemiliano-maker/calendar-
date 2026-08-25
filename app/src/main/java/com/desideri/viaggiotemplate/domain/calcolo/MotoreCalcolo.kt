@@ -202,8 +202,11 @@ class MotoreCalcolo {
     ): Pair<LocalTime, LocalTime>? {
         val candidati = generaCandidati(tratta.opzioniOrario, deadline.hour - 2, 36) +
             generaCandidatiFissi(tratta.orariFissi, deadline.hour - 2, 36)
+        // Primo criterio: partenza più presto possibile dopo il deadline (meno attesa dopo la
+        // tratta precedente). A parità di partenza (es. lo stesso treno reale è anche un'opzione
+        // ricorrente, o due pattern coincidono), l'arrivo più presto è comunque preferibile.
         return candidati.filter { it.first.toMinutiAssoluti() >= deadline.toMinutiAssoluti() }
-            .minByOrNull { it.first.toMinutiAssoluti() }
+            .minWithOrNull(compareBy({ it.first.toMinutiAssoluti() }, { it.second.toMinutiAssoluti() }))
     }
 
     /**
@@ -217,8 +220,12 @@ class MotoreCalcolo {
     ): Pair<LocalTime, LocalTime>? {
         val candidati = generaCandidati(tratta.opzioniOrario, deadline.hour - 40, 44) +
             generaCandidatiFissi(tratta.orariFissi, deadline.hour - 40, 44)
+        // Primo criterio: arrivo più tardivo possibile entro il deadline (massimizza il margine
+        // reale). A parità di arrivo (es. un orario fisso scaricato arriva alla stessa ora di
+        // un'opzione ricorrente, ma parte più tardi), la partenza più tardiva è preferibile:
+        // meno attesa per chi viaggia, a parità di risultato.
         return candidati.filter { it.second.toMinutiAssoluti() <= deadline.toMinutiAssoluti() }
-            .maxByOrNull { it.second.toMinutiAssoluti() }
+            .maxWithOrNull(compareBy({ it.second.toMinutiAssoluti() }, { it.first.toMinutiAssoluti() }))
     }
 
     /**

@@ -373,4 +373,43 @@ class MotoreCalcoloTest {
         assertEquals(LocalTime.of(7, 30), eventi[0].inizioReale)
         assertEquals(LocalTime.of(8, 45), eventi[0].fineReale)
     }
+
+    @Test
+    fun `propagazione indietro, a parita' di arrivo, preferisce la partenza piu' tardiva`() {
+        // Il pattern ricorrente genera 14:55->16:17; un orario fisso (es. scaricato da SBB)
+        // arriva alla STESSA ora ma parte piu' tardi (15:02->16:17): a parita' di arrivo va
+        // preferito chi parte piu' tardi, non il primo trovato nell'elenco dei candidati.
+        val opzione = OpzioneOrario(id = "o1", minutoPartenza = 55, offsetOreArrivo = 2, minutoArrivo = 17)
+        val fisso = OrarioFisso(id = "f1", partenza = LocalTime.of(15, 2), arrivo = LocalTime.of(16, 17))
+        val treno = trattaTreno("treno", margine = 5, opzioni = listOf(opzione), orariFissi = listOf(fisso))
+        val ancora = trattaAuto("ancora", durata = 0, margine = 0)
+
+        val risolti = listOf(
+            SlotRisolto(slot("s0", 0, ancora = false, selezionataId = treno.id), treno, listOf(treno)),
+            SlotRisolto(slot("s1", 1, ancora = true, selezionataId = ancora.id), ancora, listOf(ancora))
+        )
+
+        val eventi = motore.calcola(risolti, ancora(1, LocalTime.of(17, 0), LocalTime.of(17, 15)))
+
+        assertEquals(LocalTime.of(15, 2), eventi[0].inizioReale)
+        assertEquals(LocalTime.of(16, 17), eventi[0].fineReale)
+    }
+
+    @Test
+    fun `propagazione avanti, a parita' di partenza, preferisce l'arrivo piu' presto`() {
+        val opzione = OpzioneOrario(id = "o1", minutoPartenza = 2, offsetOreArrivo = 1, minutoArrivo = 30)
+        val fisso = OrarioFisso(id = "f1", partenza = LocalTime.of(15, 2), arrivo = LocalTime.of(16, 17))
+        val treno = trattaTreno("treno", margine = 0, opzioni = listOf(opzione), orariFissi = listOf(fisso))
+        val ancora = trattaAuto("ancora", durata = 0, margine = 0)
+
+        val risolti = listOf(
+            SlotRisolto(slot("s0", 0, ancora = true, selezionataId = ancora.id), ancora, listOf(ancora)),
+            SlotRisolto(slot("s1", 1, ancora = false, selezionataId = treno.id), treno, listOf(treno))
+        )
+
+        val eventi = motore.calcola(risolti, ancora(0, LocalTime.of(14, 30), LocalTime.of(15, 2)))
+
+        assertEquals(LocalTime.of(15, 2), eventi[1].inizioReale)
+        assertEquals(LocalTime.of(16, 17), eventi[1].fineReale)
+    }
 }
