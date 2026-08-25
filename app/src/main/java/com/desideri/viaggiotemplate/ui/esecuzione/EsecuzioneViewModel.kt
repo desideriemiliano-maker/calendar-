@@ -1,0 +1,231 @@
+package com.desideri.viaggiotemplate.ui.esecuzione
+
+import android.content.Context
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.desideri.viaggiotemplate.data.local.ImpostazioniStore
+import com.desideri.viaggiotemplate.data.local.entities.TemplateEntity
+import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
+import com.desideri.viaggiotemplate.domain.calcolo.MotoreCalcolo
+import com.desideri.viaggiotemplate.domain.calcolo.SlotRisolto
+import com.desideri.viaggiotemplate.domain.calendar.CalendarWriter
+import com.desideri.viaggiotemplate.domain.calendar.CalendarioDisponibile
+import com.desideri.viaggiotemplate.domain.model.Template
+import com.desideri.viaggiotemplate.domain.model.Tratta
+import com.desideri.viaggiotemplate.repository.TemplateRepository
+import com.desideri.viaggiotemplate.repository.TrattaRepository
+import com.desideri.viaggiotemplate.ui.AppContainer
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.LocalTime
+
+data class StatoEsecuzione(
+    val templateEntities: List<TemplateEntity> = emptyList(),
+    val templateSelezionato: Template? = null,
+    val tratte: Map<String, Tratta> = emptyMap(),
+    val data: LocalDate = LocalDate.now(),
+    /**
+     * Orario inserito dall'utente per le tratte-ancora del template (una o più) che NON
+     * hanno un orario di inizio predefinito (es. un treno il cui orario reale del giorno
+     * va inserito a mano). Chiave: templateSlotId. Le ancore con orario predefinito (tipicamente
+     * le Riunioni) non compaiono qui: il loro orario si ricava sempre dalla tratta stessa.
+     */
+    val orariAncoreInput: Map<String, Pair<LocalTime, LocalTime>> = emptyMap(),
+    val eventiCalcolati: List<EventoCalcolato> = emptyList(),
+    /**
+     * Orari corretti a mano dall'utente su tratte diverse dalle ancore del template
+     * (templateSlotId -> orari). Ogni voce diventa un'ancora aggiuntiva nel motore di
+     * calcolo, così le tratte tra due ancore si ricalcolano in modo coerente.
+     */
+    val ancoreManuali: Map<String, Pair<LocalTime, LocalTime>> = emptyMap(),
+    val calendarioConfigurato: CalendarioDisponibile? = null,
+    val calendarioConfiguratoVerificato: Boolean = false,
+    val messaggio: String? = null
+)
+
+class EsecuzioneViewModel(
+    private val templateRepository: TemplateRepository,
+    private val trattaRepository: TrattaRepository,
+    private val impostazioniStore: ImpostazioniStore
+) : ViewModel() {
+
+    private val motore = MotoreCalcolo()
+
+    private val _stato = MutableStateFlow(StatoEsecuzione())
+    val stato: StateFlow<StatoEsecuzione> = _stato.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            templateRepository.osservaTemplateEntities().collect { lista ->
+                _stato.value = _stato.value.copy(templateEntities = lista)
+            }
+        }
+    }
+
+    fun selezionaTemplate(id: String) {
+        viewModelScope.launch {
+            val template = templateRepository.getTemplate(id) ?: return@launch
+            val tratteMap = template.slots
+                .flatMap { it.trattaCandidatiIds.ifEmpty { listOf(it.trattaSelezionataId) } }
+                .distinct()
+                .mapNotNull { trattaId -> trattaRepository.getTratta(trattaId)?.let { trattaId to it } }
+                .toMap()
+
+            // Per le ancore SENZA orario predefinito (es. un treno) serve un input utente:
+            // lo si inizializza a 9:00-9:30. Le ancore CON orario predefinito (tipicamente
+            // le Riunioni) non hanno bisogno di input: il loro orario si ricava sempre dalla tratta.
+            val orariAncoreInput = template.slots
+                .filter { it.ancora && tratteMap[it.trattaSelezionataId]?.orarioInizioDefault == null }
+                .associate { it.id to (LocalTime.of(9, 0) to LocalTime.of(9, 30)) }
+
+            _stato.value = _stato.value.copy(
+                templateSelezionato = template,
+                tratte = tratteMap,
+                eventiCalcolati = emptyList(),
+                ancoreManuali = emptyMap(),
+                orariAncoreInput = orariAncoreInput
+            )
+        }
+    }
+
+    fun aggiornaData(data: LocalDate) {
+        _stato.value = _stato.value.copy(data = data)
+    }
+
+    /**
+     * Rilegge quale calendario è configurato nelle Impostazioni (solo per mostrarlo in questa
+     * schermata prima di scrivere). Da chiamare dopo aver ottenuto i permessi.
+     */
+    fun aggiornaCalendarioConfigurato(context: Context) {
+        val id = impostazioniStore.calendarioSelezionatoId
+        val calendario = id?.let { targetId ->
+            CalendarWriter(context).elencaCalendariScrivibili().firstOrNull { it.id == targetId }
+        }
+        _stato.value = _stato.value.copy(calendarioConfigurato = calendario, calendarioConfiguratoVerificato = true)
+    }
+
+    /** Aggiorna l'orario inserito dall'utente per una specifica tratta-ancora senza orario predefinito. */
+    fun aggiornaOrarioAncora(templateSlotId: String, inizio: LocalTime, fine: LocalTime) {
+        _stato.value = _stato.value.copy(
+            orariAncoreInput = _stato.value.orariAncoreInput + (templateSlotId to (inizio to fine))
+        )
+    }
+
+    /** Calcolo da zero: riparte dalle sole ancore del template, scartando eventuali correzioni manuali precedenti. */
+    fun calcola() {
+        _stato.value = _stato.value.copy(ancoreManuali = emptyMap())
+        eseguiCalcolo()
+    }
+
+    /** Pulisce i risultati del calcolo, le correzioni manuali e l'esito dell'ultimo inserimento a calendario. */
+    fun pulisciRisultati() {
+        _stato.value = _stato.value.copy(eventiCalcolati = emptyList(), ancoreManuali = emptyMap(), messaggio = null)
+    }
+
+    /** Sostituisce la tratta selezionata per uno slot (scelta di un'alternativa) e ricalcola, mantenendo le eventuali ancore manuali. */
+    fun scegliAlternativa(templateSlotId: String, nuovaTrattaId: String) {
+        val s = _stato.value
+        val template = s.templateSelezionato ?: return
+        val nuoviSlot = template.slots.map {
+            if (it.id == templateSlotId) it.copy(trattaSelezionataId = nuovaTrattaId) else it
+        }
+        _stato.value = s.copy(templateSelezionato = template.copy(slots = nuoviSlot))
+        eseguiCalcolo()
+    }
+
+    /**
+     * Corregge a mano inizio/fine reali di una tratta calcolata. La tratta diventa un'ancora
+     * aggiuntiva: si ricalcolano tutte le altre tenendo conto sia delle ancore del template
+     * sia di questo nuovo punto fisso.
+     */
+    fun sovrascriviEvento(templateSlotId: String, nuovoInizio: LocalTime, nuovaFine: LocalTime) {
+        val s = _stato.value
+        _stato.value = s.copy(ancoreManuali = s.ancoreManuali + (templateSlotId to (nuovoInizio to nuovaFine)))
+        eseguiCalcolo()
+    }
+
+    /** Rimuove una tratta proposta dai risultati (non tocca il template, solo l'esito di questo calcolo). */
+    fun eliminaEvento(templateSlotId: String) {
+        val s = _stato.value
+        _stato.value = s.copy(
+            eventiCalcolati = s.eventiCalcolati.filterNot { it.templateSlotId == templateSlotId },
+            ancoreManuali = s.ancoreManuali - templateSlotId
+        )
+    }
+
+    private fun eseguiCalcolo() {
+        val s = _stato.value
+        val template = s.templateSelezionato ?: return
+        val slotsOrdinati = template.slotsOrdinati
+        val slotsAncora = slotsOrdinati.withIndex().filter { it.value.ancora }
+        if (slotsAncora.isEmpty()) {
+            _stato.value = s.copy(messaggio = "Il template non ha nessuna tratta ancora impostata")
+            return
+        }
+
+        val slotsRisolti = slotsOrdinati.mapNotNull { slot ->
+            val selezionata = s.tratte[slot.trattaSelezionataId] ?: return@mapNotNull null
+            val candidate = slot.trattaCandidatiIds.mapNotNull { s.tratte[it] }
+            SlotRisolto(slot, selezionata, candidate)
+        }
+        if (slotsRisolti.size != slotsOrdinati.size) {
+            _stato.value = s.copy(messaggio = "Alcune tratte del template non sono state trovate")
+            return
+        }
+
+        // Ogni tratta-ancora del template: se ha un orario predefinito (tipicamente una Riunione)
+        // è sempre fissa; altrimenti si usa l'orario inserito dall'utente per quello slot.
+        val ancore = mutableMapOf<Int, Pair<LocalTime, LocalTime>>()
+        for ((indice, slot) in slotsAncora) {
+            val tratta = s.tratte[slot.trattaSelezionataId] ?: continue
+            val orari = tratta.orarioInizioDefault?.let { it to it.plusMinutes(tratta.durataMinutiReale.toLong()) }
+                ?: s.orariAncoreInput[slot.id]
+                ?: (LocalTime.of(9, 0) to LocalTime.of(9, 30))
+            ancore[indice] = orari
+        }
+        s.ancoreManuali.forEach { (slotId, orari) ->
+            val indice = slotsOrdinati.indexOfFirst { it.id == slotId }
+            if (indice >= 0) ancore[indice] = orari
+        }
+
+        try {
+            val eventi = motore.calcola(slotsRisolti, ancore)
+            _stato.value = _stato.value.copy(eventiCalcolati = eventi, messaggio = null)
+        } catch (e: Exception) {
+            _stato.value = _stato.value.copy(messaggio = e.message ?: "Errore nel calcolo")
+        }
+    }
+
+    fun aggiungiAlCalendario(context: Context) {
+        val s = _stato.value
+        if (s.eventiCalcolati.isEmpty()) return
+        val calendarioId = s.calendarioConfigurato?.id
+        if (calendarioId == null) {
+            _stato.value = s.copy(messaggio = "Configura un calendario di destinazione nella sezione Impostazioni")
+            return
+        }
+        try {
+            val writer = CalendarWriter(context)
+            val idInseriti = writer.inserisciEventi(calendarioId, s.data, s.eventiCalcolati)
+            _stato.value = if (idInseriti.size == s.eventiCalcolati.size) {
+                s.copy(messaggio = "${idInseriti.size} eventi aggiunti al calendario ✓")
+            } else {
+                s.copy(messaggio = "Aggiunti solo ${idInseriti.size} su ${s.eventiCalcolati.size} eventi: controlla il calendario scelto")
+            }
+        } catch (e: Exception) {
+            _stato.value = s.copy(messaggio = "Errore nella scrittura sul calendario: ${e.message}")
+        }
+    }
+}
+
+object EsecuzioneViewModelFactory {
+    fun get(): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            EsecuzioneViewModel(AppContainer.templateRepository, AppContainer.trattaRepository, AppContainer.impostazioniStore) as T
+    }
+}

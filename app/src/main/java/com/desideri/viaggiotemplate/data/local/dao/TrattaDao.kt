@@ -1,0 +1,45 @@
+package com.desideri.viaggiotemplate.data.local.dao
+
+import androidx.room.Delete
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Transaction
+import com.desideri.viaggiotemplate.data.local.entities.OpzioneOrarioEntity
+import com.desideri.viaggiotemplate.data.local.entities.TrattaConOpzioni
+import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
+import kotlinx.coroutines.flow.Flow
+
+@androidx.room.Dao
+interface TrattaDao {
+
+    @Transaction
+    @Query("SELECT * FROM tratta ORDER BY ordine")
+    fun osservaTutte(): Flow<List<TrattaConOpzioni>>
+
+    @Transaction
+    @Query("SELECT * FROM tratta WHERE id = :id")
+    suspend fun getPerId(id: String): TrattaConOpzioni?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun inserisci(tratta: TrattaEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun inserisciOpzioni(opzioni: List<OpzioneOrarioEntity>)
+
+    @Query("DELETE FROM opzione_orario WHERE trattaId = :trattaId")
+    suspend fun eliminaOpzioniDiTratta(trattaId: String)
+
+    @Delete
+    suspend fun elimina(tratta: TrattaEntity)
+
+    @Query("UPDATE tratta SET ordine = :ordine WHERE id = :id")
+    suspend fun aggiornaOrdine(id: String, ordine: Int)
+
+    @Transaction
+    suspend fun salvaConOpzioni(tratta: TrattaEntity, opzioni: List<OpzioneOrarioEntity>) {
+        inserisci(tratta)
+        eliminaOpzioniDiTratta(tratta.id)
+        if (opzioni.isNotEmpty()) inserisciOpzioni(opzioni)
+    }
+}
