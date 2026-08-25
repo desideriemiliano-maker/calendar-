@@ -24,6 +24,13 @@ data class Tratta(
     val stepArrotondamentoMinuti: Int = 10,
     val titoloTemplate: String = "{oraPartenza} {luogoPartenza} / {luogoArrivo} {oraArrivo}",
     val opzioniOrario: List<OpzioneOrario> = emptyList(),
+    /**
+     * Orari fissi (non ricorrenti) alternativi ai pattern di `opzioniOrario`, solo per TRENO.
+     * Quando questa tratta è l'ancora del calcolo, l'utente sceglie in Esegui quale usare tra
+     * fisso e ricorrente; quando non è l'ancora, il motore di calcolo sceglie automaticamente
+     * il migliore tra i due in base alle condizioni delle tratte adiacenti.
+     */
+    val orariFissi: List<OrarioFisso> = emptyList(),
     val ordine: Int = 0,
     /** Colore ARGB della card in libreria; null = colore grigio di default del tema. */
     val colore: Int? = null,

@@ -46,7 +46,8 @@ class TratteViewModel(private val repository: TrattaRepository) : ViewModel() {
                 id = repository.nuovoId(),
                 nome = "${tratta.nome} (copia)",
                 ordine = _tratte.value.size,
-                opzioniOrario = tratta.opzioniOrario.map { it.copy(id = repository.nuovoId()) }
+                opzioniOrario = tratta.opzioniOrario.map { it.copy(id = repository.nuovoId()) },
+                orariFissi = tratta.orariFissi.map { it.copy(id = repository.nuovoId()) }
             )
             repository.salva(copia)
         }

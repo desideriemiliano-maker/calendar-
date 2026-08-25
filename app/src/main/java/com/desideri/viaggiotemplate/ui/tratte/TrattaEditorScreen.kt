@@ -28,8 +28,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.desideri.viaggiotemplate.domain.model.Arrotondamento
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
+import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
+import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.CampoOrarioOpzionale
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
 import java.time.LocalTime
@@ -57,6 +59,7 @@ fun TrattaEditorScreen(
         mutableStateOf(trattaEsistente?.titoloTemplate ?: "{oraPartenza} {luogoPartenza} / {luogoArrivo} {oraArrivo}")
     }
     var opzioni by remember { mutableStateOf(trattaEsistente?.opzioniOrario ?: emptyList()) }
+    var orariFissi by remember { mutableStateOf(trattaEsistente?.orariFissi ?: emptyList()) }
     var colore by remember { mutableStateOf(trattaEsistente?.colore) }
     var orarioInizioDefault by remember { mutableStateOf<LocalTime?>(trattaEsistente?.orarioInizioDefault) }
 
@@ -155,6 +158,32 @@ fun TrattaEditorScreen(
                     )
                 }) { Text("+ Aggiungi opzione orario") }
             }
+
+            item {
+                Text("Orari fissi (opzionali)", style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+                Text(
+                    "Orari non ricorrenti (es. un treno straordinario), in alternativa ai pattern sopra: " +
+                        "in Esegui potrai scegliere quale usare per la tratta ancora, mentre per le altre tratte " +
+                        "il calcolo sceglie automaticamente il migliore tra fisso e ricorrente.",
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+                )
+            }
+            items(orariFissi, key = { it.id }) { fisso ->
+                EditorOrarioFisso(
+                    orario = fisso,
+                    onCambia = { aggiornato -> orariFissi = orariFissi.map { if (it.id == aggiornato.id) aggiornato else it } },
+                    onElimina = { orariFissi = orariFissi.filterNot { it.id == fisso.id } }
+                )
+            }
+            item {
+                TextButton(onClick = {
+                    orariFissi = orariFissi + OrarioFisso(
+                        id = UUID.randomUUID().toString(),
+                        partenza = LocalTime.of(0, 0),
+                        arrivo = LocalTime.of(0, 15)
+                    )
+                }) { Text("+ Aggiungi orario fisso") }
+            }
         }
 
         item {
@@ -177,6 +206,7 @@ fun TrattaEditorScreen(
                         stepArrotondamentoMinuti = step.toIntOrNull() ?: 10,
                         titoloTemplate = titoloTemplate,
                         opzioniOrario = opzioni,
+                        orariFissi = if (tipo == TipoTratta.TRENO) orariFissi else emptyList(),
                         ordine = trattaEsistente?.ordine ?: ordineIniziale(),
                         colore = colore,
                         orarioInizioDefault = if (tipo == TipoTratta.RIUNIONE) orarioInizioDefault else null
@@ -275,6 +305,38 @@ private fun EditorOpzioneOrario(
                 label = { Text("Etichetta (opzionale)") }, modifier = Modifier.fillMaxWidth()
             )
             TextButton(onClick = onElimina) { Text("Rimuovi questa opzione") }
+        }
+    }
+}
+
+@Composable
+private fun EditorOrarioFisso(
+    orario: OrarioFisso,
+    onCambia: (OrarioFisso) -> Unit,
+    onElimina: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CampoOrario(
+                    etichetta = "Partenza",
+                    valore = orario.partenza,
+                    onValoreCambiato = { onCambia(orario.copy(partenza = it)) },
+                    modifier = Modifier.weight(1f)
+                )
+                CampoOrario(
+                    etichetta = "Arrivo",
+                    valore = orario.arrivo,
+                    onValoreCambiato = { onCambia(orario.copy(arrivo = it)) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            OutlinedTextField(
+                value = orario.etichetta ?: "",
+                onValueChange = { onCambia(orario.copy(etichetta = it.ifBlank { null })) },
+                label = { Text("Etichetta (opzionale)") }, modifier = Modifier.fillMaxWidth()
+            )
+            TextButton(onClick = onElimina) { Text("Rimuovi questo orario fisso") }
         }
     }
 }

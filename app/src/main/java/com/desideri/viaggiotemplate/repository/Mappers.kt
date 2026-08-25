@@ -1,10 +1,12 @@
 package com.desideri.viaggiotemplate.repository
 
 import com.desideri.viaggiotemplate.data.local.entities.OpzioneOrarioEntity
+import com.desideri.viaggiotemplate.data.local.entities.OrarioFissoEntity
 import com.desideri.viaggiotemplate.data.local.entities.TrattaConOpzioni
 import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
 import com.desideri.viaggiotemplate.domain.model.Arrotondamento
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
+import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import java.time.LocalTime
@@ -22,6 +24,7 @@ fun TrattaConOpzioni.toDomain(): Tratta = Tratta(
     stepArrotondamentoMinuti = tratta.stepArrotondamentoMinuti,
     titoloTemplate = tratta.titoloTemplate,
     opzioniOrario = opzioni.map { it.toDomain() },
+    orariFissi = orariFissi.map { it.toDomain() },
     ordine = tratta.ordine,
     colore = tratta.colore,
     orarioInizioDefault = tratta.orarioInizioDefaultMinuti?.let { LocalTime.of(it / 60, it % 60) }
@@ -34,6 +37,13 @@ fun OpzioneOrarioEntity.toDomain(): OpzioneOrario = OpzioneOrario(
     parita = parita,
     offsetOreArrivo = offsetOreArrivo,
     minutoArrivo = minutoArrivo,
+    etichetta = etichetta
+)
+
+fun OrarioFissoEntity.toDomain(): OrarioFisso = OrarioFisso(
+    id = id,
+    partenza = LocalTime.of(partenzaMinuti / 60, partenzaMinuti % 60),
+    arrivo = LocalTime.of(arrivoMinuti / 60, arrivoMinuti % 60),
     etichetta = etichetta
 )
 
@@ -63,6 +73,16 @@ fun Tratta.opzioniToEntity(): List<OpzioneOrarioEntity> = opzioniOrario.map {
         parita = it.parita,
         offsetOreArrivo = it.offsetOreArrivo,
         minutoArrivo = it.minutoArrivo,
+        etichetta = it.etichetta
+    )
+}
+
+fun Tratta.orariFissiToEntity(): List<OrarioFissoEntity> = orariFissi.map {
+    OrarioFissoEntity(
+        id = it.id,
+        trattaId = id,
+        partenzaMinuti = it.partenza.hour * 60 + it.partenza.minute,
+        arrivoMinuti = it.arrivo.hour * 60 + it.arrivo.minute,
         etichetta = it.etichetta
     )
 }

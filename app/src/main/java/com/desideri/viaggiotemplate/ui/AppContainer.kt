@@ -7,6 +7,7 @@ import com.desideri.viaggiotemplate.data.local.ImpostazioniStore
 import com.desideri.viaggiotemplate.data.local.MIGRATION_1_2
 import com.desideri.viaggiotemplate.data.local.MIGRATION_2_3
 import com.desideri.viaggiotemplate.data.local.MIGRATION_3_4
+import com.desideri.viaggiotemplate.data.local.MIGRATION_4_5
 import com.desideri.viaggiotemplate.repository.TemplateRepository
 import com.desideri.viaggiotemplate.repository.TrattaRepository
 
@@ -32,7 +33,7 @@ object AppContainer {
             "viaggio-template.db"
         )
             // Migrazioni esplicite: preservano i dati dell'utente ad ogni cambio di schema.
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
         trattaRepository = TrattaRepository(database.trattaDao())
         templateRepository = TemplateRepository(database.templateDao())

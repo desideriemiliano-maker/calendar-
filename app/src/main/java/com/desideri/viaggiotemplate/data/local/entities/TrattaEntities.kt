@@ -47,9 +47,31 @@ data class OpzioneOrarioEntity(
     val etichetta: String?
 )
 
-/** Proiezione con relazione 1-a-N per leggere una Tratta con tutte le sue opzioni orario. */
+@Entity(
+    tableName = "orario_fisso",
+    foreignKeys = [
+        ForeignKey(
+            entity = TrattaEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["trattaId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ]
+)
+data class OrarioFissoEntity(
+    @PrimaryKey val id: String,
+    val trattaId: String,
+    /** Minuti dalla mezzanotte (0-1439). */
+    val partenzaMinuti: Int,
+    val arrivoMinuti: Int,
+    val etichetta: String?
+)
+
+/** Proiezione con relazione 1-a-N per leggere una Tratta con tutte le sue opzioni orario e orari fissi. */
 data class TrattaConOpzioni(
     @Embedded val tratta: TrattaEntity,
     @Relation(parentColumn = "id", entityColumn = "trattaId")
-    val opzioni: List<OpzioneOrarioEntity>
+    val opzioni: List<OpzioneOrarioEntity>,
+    @Relation(parentColumn = "id", entityColumn = "trattaId")
+    val orariFissi: List<OrarioFissoEntity>
 )

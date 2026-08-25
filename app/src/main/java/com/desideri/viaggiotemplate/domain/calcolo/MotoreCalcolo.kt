@@ -2,6 +2,7 @@ package com.desideri.viaggiotemplate.domain.calcolo
 
 import com.desideri.viaggiotemplate.domain.model.Arrotondamento
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
+import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
@@ -108,7 +109,7 @@ class MotoreCalcolo {
     /** Calcola inizio/fine di una tratta andando all'indietro da un deadline di arrivo massimo. */
     private fun calcolaIndietro(tratta: Tratta, deadlineArrivoMassimo: LocalTime): Pair<LocalTime, LocalTime> {
         return if (tratta.tipo == TipoTratta.TRENO) {
-            val opzione = trovaUltimoSlotConArrivoEntro(tratta.opzioniOrario, deadlineArrivoMassimo)
+            val opzione = trovaUltimoSlotConArrivoEntro(tratta, deadlineArrivoMassimo)
                 ?: error("Nessuno slot disponibile per ${tratta.nome} entro $deadlineArrivoMassimo")
             opzione
         } else {
@@ -121,7 +122,7 @@ class MotoreCalcolo {
     /** Calcola inizio/fine di una tratta andando in avanti da un deadline di partenza minimo. */
     private fun calcolaAvanti(tratta: Tratta, deadlinePartenzaMinima: LocalTime): Pair<LocalTime, LocalTime> {
         return if (tratta.tipo == TipoTratta.TRENO) {
-            val opzione = trovaPrimoSlotConPartenzaDa(tratta.opzioniOrario, deadlinePartenzaMinima)
+            val opzione = trovaPrimoSlotConPartenzaDa(tratta, deadlinePartenzaMinima)
                 ?: error("Nessuno slot disponibile per ${tratta.nome} da $deadlinePartenzaMinima")
             opzione
         } else {
@@ -191,27 +192,32 @@ class MotoreCalcolo {
     }
 
     /**
-     * Tra tutti gli slot generabili dai pattern, trova quello con partenza >= deadline,
-     * scegliendo il più vicino (il primo utile).
+     * Tra tutti gli slot generabili dai pattern ricorrenti E dagli orari fissi della tratta,
+     * trova quello con partenza >= deadline, scegliendo il più vicino (il primo utile). Unendo
+     * i due pool di candidati, il motore sceglie automaticamente il migliore tra fisso e
+     * ricorrente, con la stessa identica logica.
      */
     private fun trovaPrimoSlotConPartenzaDa(
-        opzioni: List<OpzioneOrario>,
+        tratta: Tratta,
         deadline: LocalTime
     ): Pair<LocalTime, LocalTime>? {
-        val candidati = generaCandidati(opzioni, deadline.hour - 2, 36)
+        val candidati = generaCandidati(tratta.opzioniOrario, deadline.hour - 2, 36) +
+            generaCandidatiFissi(tratta.orariFissi, deadline.hour - 2, 36)
         return candidati.filter { it.first.toMinutiAssoluti() >= deadline.toMinutiAssoluti() }
             .minByOrNull { it.first.toMinutiAssoluti() }
     }
 
     /**
-     * Tra tutti gli slot generabili dai pattern, trova quello con arrivo <= deadline,
-     * scegliendo il più tardivo (l'ultimo utile, per massimizzare il margine reale).
+     * Tra tutti gli slot generabili dai pattern ricorrenti E dagli orari fissi della tratta,
+     * trova quello con arrivo <= deadline, scegliendo il più tardivo (l'ultimo utile, per
+     * massimizzare il margine reale). Vedi [trovaPrimoSlotConPartenzaDa] per la logica di unione.
      */
     private fun trovaUltimoSlotConArrivoEntro(
-        opzioni: List<OpzioneOrario>,
+        tratta: Tratta,
         deadline: LocalTime
     ): Pair<LocalTime, LocalTime>? {
-        val candidati = generaCandidati(opzioni, deadline.hour - 40, 44)
+        val candidati = generaCandidati(tratta.opzioniOrario, deadline.hour - 40, 44) +
+            generaCandidatiFissi(tratta.orariFissi, deadline.hour - 40, 44)
         return candidati.filter { it.second.toMinutiAssoluti() <= deadline.toMinutiAssoluti() }
             .maxByOrNull { it.second.toMinutiAssoluti() }
     }
@@ -233,6 +239,32 @@ class MotoreCalcolo {
                 if (!opzione.èAttivoNellOra(oraNormalizzata)) continue
                 val partenzaMin = h * 60 + opzione.minutoPartenza
                 val arrivoMin = h * 60 + opzione.offsetOreArrivo * 60 + opzione.minutoArrivo
+                out += minutiToLocalTime(partenzaMin) to minutiToLocalTime(arrivoMin)
+            }
+        }
+        return out
+    }
+
+    /**
+     * Genera le occorrenze di ciascun orario fisso per ogni "giorno" coperto dalla finestra
+     * [oraIniziale, oraIniziale+numeroOre): un orario fisso, a differenza di un pattern
+     * ricorrente, si presenta una sola volta al giorno, non a ogni ora. Se l'arrivo è prima
+     * della partenza, si considera oltre mezzanotte.
+     */
+    private fun generaCandidatiFissi(
+        orariFissi: List<OrarioFisso>,
+        oraIniziale: Int,
+        numeroOre: Int
+    ): List<Pair<LocalTime, LocalTime>> {
+        if (orariFissi.isEmpty()) return emptyList()
+        val out = mutableListOf<Pair<LocalTime, LocalTime>>()
+        val giornoIniziale = Math.floorDiv(oraIniziale, 24)
+        val giornoFinale = Math.floorDiv(oraIniziale + numeroOre - 1, 24)
+        for (giorno in giornoIniziale..giornoFinale) {
+            for (fisso in orariFissi) {
+                val partenzaMin = giorno * 1440 + fisso.partenza.hour * 60 + fisso.partenza.minute
+                var arrivoMin = giorno * 1440 + fisso.arrivo.hour * 60 + fisso.arrivo.minute
+                if (arrivoMin < partenzaMin) arrivoMin += 1440
                 out += minutiToLocalTime(partenzaMin) to minutiToLocalTime(arrivoMin)
             }
         }

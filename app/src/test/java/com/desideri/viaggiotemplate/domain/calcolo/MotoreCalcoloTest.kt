@@ -2,6 +2,7 @@ package com.desideri.viaggiotemplate.domain.calcolo
 
 import com.desideri.viaggiotemplate.domain.model.Arrotondamento
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
+import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
@@ -35,11 +36,16 @@ class MotoreCalcoloTest {
         stepArrotondamentoMinuti = step
     )
 
-    private fun trattaTreno(id: String, margine: Int, opzioni: List<OpzioneOrario>) = Tratta(
+    private fun trattaTreno(
+        id: String,
+        margine: Int,
+        opzioni: List<OpzioneOrario>,
+        orariFissi: List<OrarioFisso> = emptyList()
+    ) = Tratta(
         id = id, nome = id, tipo = TipoTratta.TRENO,
         luogoPartenza = "P-$id", luogoArrivo = "A-$id",
         durataMinutiReale = 0, margineMinuti = margine,
-        opzioniOrario = opzioni
+        opzioniOrario = opzioni, orariFissi = orariFissi
     )
 
     private fun slot(id: String, ordine: Int, ancora: Boolean, selezionataId: String, candidatiIds: List<String> = listOf(selezionataId)) =
@@ -288,5 +294,62 @@ class MotoreCalcoloTest {
         // dopo: in avanti dalla SECONDA ancora (s1: 9:10 + margine 5 = 9:15 -> +10 = 9:25), non dalla prima.
         assertEquals(LocalTime.of(9, 15), eventi[2].inizioReale)
         assertEquals(LocalTime.of(9, 25), eventi[2].fineReale)
+    }
+
+    @Test
+    fun `propagazione avanti sceglie l'orario fisso se e' piu conveniente del ricorrente`() {
+        // Ricorrente: parte al minuto 43 di ogni ora. Fisso: un treno speciale alle 9:05-9:50.
+        val opzione = OpzioneOrario(id = "o1", minutoPartenza = 43, offsetOreArrivo = 1, minutoArrivo = 29)
+        val fisso = OrarioFisso(id = "f1", partenza = LocalTime.of(9, 5), arrivo = LocalTime.of(9, 50))
+        val treno = trattaTreno("treno", margine = 0, opzioni = listOf(opzione), orariFissi = listOf(fisso))
+        val ancora = trattaAuto("ancora", durata = 0, margine = 0)
+
+        val risolti = listOf(
+            SlotRisolto(slot("s0", 0, ancora = true, selezionataId = ancora.id), ancora, listOf(ancora)),
+            SlotRisolto(slot("s1", 1, ancora = false, selezionataId = treno.id), treno, listOf(treno))
+        )
+
+        // deadline partenza = 9:00; il ricorrente offre 9:43, il fisso 9:05 -> il fisso vince perché più vicino al deadline.
+        val eventi = motore.calcola(risolti, ancora(0, LocalTime.of(8, 30), LocalTime.of(9, 0)))
+
+        assertEquals(LocalTime.of(9, 5), eventi[1].inizioReale)
+        assertEquals(LocalTime.of(9, 50), eventi[1].fineReale)
+    }
+
+    @Test
+    fun `propagazione indietro sceglie il candidato con arrivo piu tardivo tra fisso e ricorrenti`() {
+        val opzione = OpzioneOrario(id = "o1", minutoPartenza = 43, offsetOreArrivo = 1, minutoArrivo = 29)
+        val fisso = OrarioFisso(id = "f1", partenza = LocalTime.of(9, 5), arrivo = LocalTime.of(9, 50))
+        val treno = trattaTreno("treno", margine = 0, opzioni = listOf(opzione), orariFissi = listOf(fisso))
+        val ancora = trattaAuto("ancora", durata = 0, margine = 0)
+
+        val risolti = listOf(
+            SlotRisolto(slot("s0", 0, ancora = false, selezionataId = treno.id), treno, listOf(treno)),
+            SlotRisolto(slot("s1", 1, ancora = true, selezionataId = ancora.id), ancora, listOf(ancora))
+        )
+
+        // deadline arrivo = 10:00; il fisso arriva alle 9:50, il ricorrente (8:43->9:29) arriva prima ma il
+        // ricorrente successivo (9:43->10:29) supera il deadline: tra i validi, il fisso (9:50) è il più tardivo.
+        val eventi = motore.calcola(risolti, ancora(1, LocalTime.of(10, 0), LocalTime.of(10, 20)))
+
+        assertEquals(LocalTime.of(9, 5), eventi[0].inizioReale)
+        assertEquals(LocalTime.of(9, 50), eventi[0].fineReale)
+    }
+
+    @Test
+    fun `tratta TRENO con solo orari fissi, senza pattern ricorrenti, funziona regolarmente`() {
+        val fisso = OrarioFisso(id = "f1", partenza = LocalTime.of(14, 32), arrivo = LocalTime.of(15, 10))
+        val treno = trattaTreno("treno", margine = 5, opzioni = emptyList(), orariFissi = listOf(fisso))
+        val ancora = trattaAuto("ancora", durata = 0, margine = 0)
+
+        val risolti = listOf(
+            SlotRisolto(slot("s0", 0, ancora = true, selezionataId = ancora.id), ancora, listOf(ancora)),
+            SlotRisolto(slot("s1", 1, ancora = false, selezionataId = treno.id), treno, listOf(treno))
+        )
+
+        val eventi = motore.calcola(risolti, ancora(0, LocalTime.of(14, 0), LocalTime.of(14, 20)))
+
+        assertEquals(LocalTime.of(14, 32), eventi[1].inizioReale)
+        assertEquals(LocalTime.of(15, 10), eventi[1].fineReale)
     }
 }

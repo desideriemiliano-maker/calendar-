@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import com.desideri.viaggiotemplate.data.local.entities.OpzioneOrarioEntity
+import com.desideri.viaggiotemplate.data.local.entities.OrarioFissoEntity
 import com.desideri.viaggiotemplate.data.local.entities.TrattaConOpzioni
 import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
 import kotlinx.coroutines.flow.Flow
@@ -30,6 +31,12 @@ interface TrattaDao {
     @Query("DELETE FROM opzione_orario WHERE trattaId = :trattaId")
     suspend fun eliminaOpzioniDiTratta(trattaId: String)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun inserisciOrariFissi(orariFissi: List<OrarioFissoEntity>)
+
+    @Query("DELETE FROM orario_fisso WHERE trattaId = :trattaId")
+    suspend fun eliminaOrariFissiDiTratta(trattaId: String)
+
     @Delete
     suspend fun elimina(tratta: TrattaEntity)
 
@@ -37,9 +44,11 @@ interface TrattaDao {
     suspend fun aggiornaOrdine(id: String, ordine: Int)
 
     @Transaction
-    suspend fun salvaConOpzioni(tratta: TrattaEntity, opzioni: List<OpzioneOrarioEntity>) {
+    suspend fun salvaConOpzioni(tratta: TrattaEntity, opzioni: List<OpzioneOrarioEntity>, orariFissi: List<OrarioFissoEntity>) {
         inserisci(tratta)
         eliminaOpzioniDiTratta(tratta.id)
         if (opzioni.isNotEmpty()) inserisciOpzioni(opzioni)
+        eliminaOrariFissiDiTratta(tratta.id)
+        if (orariFissi.isNotEmpty()) inserisciOrariFissi(orariFissi)
     }
 }

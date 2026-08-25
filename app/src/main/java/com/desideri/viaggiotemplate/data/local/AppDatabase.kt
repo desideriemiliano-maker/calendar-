@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.desideri.viaggiotemplate.data.local.dao.TemplateDao
 import com.desideri.viaggiotemplate.data.local.dao.TrattaDao
 import com.desideri.viaggiotemplate.data.local.entities.OpzioneOrarioEntity
+import com.desideri.viaggiotemplate.data.local.entities.OrarioFissoEntity
 import com.desideri.viaggiotemplate.data.local.entities.TemplateEntity
 import com.desideri.viaggiotemplate.data.local.entities.TemplateSlotCandidatoEntity
 import com.desideri.viaggiotemplate.data.local.entities.TemplateSlotEntity
@@ -16,11 +17,12 @@ import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
     entities = [
         TrattaEntity::class,
         OpzioneOrarioEntity::class,
+        OrarioFissoEntity::class,
         TemplateEntity::class,
         TemplateSlotCandidatoEntity::class,
         TemplateSlotEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -49,5 +51,23 @@ val MIGRATION_2_3: Migration = object : Migration(2, 3) {
 val MIGRATION_3_4: Migration = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE tratta ADD COLUMN orarioInizioDefaultMinuti INTEGER")
+    }
+}
+
+val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `orario_fisso` (
+                `id` TEXT NOT NULL,
+                `trattaId` TEXT NOT NULL,
+                `partenzaMinuti` INTEGER NOT NULL,
+                `arrivoMinuti` INTEGER NOT NULL,
+                `etichetta` TEXT,
+                PRIMARY KEY(`id`),
+                FOREIGN KEY(`trattaId`) REFERENCES `tratta`(`id`) ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
     }
 }

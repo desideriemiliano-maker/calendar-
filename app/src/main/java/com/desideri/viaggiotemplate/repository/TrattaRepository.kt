@@ -14,7 +14,7 @@ class TrattaRepository(private val dao: TrattaDao) {
     suspend fun getTratta(id: String): Tratta? = dao.getPerId(id)?.toDomain()
 
     suspend fun salva(tratta: Tratta) {
-        dao.salvaConOpzioni(tratta.toEntity(), tratta.opzioniToEntity())
+        dao.salvaConOpzioni(tratta.toEntity(), tratta.opzioniToEntity(), tratta.orariFissiToEntity())
     }
 
     suspend fun elimina(tratta: Tratta) {
