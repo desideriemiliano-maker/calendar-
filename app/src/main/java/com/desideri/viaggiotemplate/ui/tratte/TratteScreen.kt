@@ -20,17 +20,23 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Train
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -104,15 +110,58 @@ private fun ListaTratte(
     onClona: (Tratta) -> Unit
 ) {
     var trattaDaEliminare by remember { mutableStateOf<Tratta?>(null) }
+    var filtroTipo by remember { mutableStateOf<TipoTratta?>(null) }
+    var testoRicerca by remember { mutableStateOf("") }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        itemsIndexed(tratte, key = { _, tratta -> tratta.id }) { indice, tratta ->
+    val tratteFiltrate = remember(tratte, filtroTipo, testoRicerca) {
+        tratte.filter { tratta ->
+            (filtroTipo == null || tratta.tipo == filtroTipo) &&
+                (testoRicerca.isBlank() ||
+                    tratta.nome.contains(testoRicerca, ignoreCase = true) ||
+                    tratta.luogoPartenza.contains(testoRicerca, ignoreCase = true) ||
+                    tratta.luogoArrivo.contains(testoRicerca, ignoreCase = true))
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            OutlinedTextField(
+                value = testoRicerca,
+                onValueChange = { testoRicerca = it },
+                label = { Text("Cerca (nome o luogo)") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (testoRicerca.isNotEmpty()) {
+                        IconButton(onClick = { testoRicerca = "" }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Cancella ricerca")
+                        }
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(
+                modifier = Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(selected = filtroTipo == null, onClick = { filtroTipo = null }, label = { Text("Tutti") })
+                TipoTratta.values().forEach { tipo ->
+                    FilterChip(
+                        selected = filtroTipo == tipo,
+                        onClick = { filtroTipo = if (filtroTipo == tipo) null else tipo },
+                        label = { Text(tipo.name) }
+                    )
+                }
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            itemsIndexed(tratteFiltrate, key = { _, tratta -> tratta.id }) { indice, tratta ->
             Card(
                 onClick = { onModifica(tratta) },
                 modifier = Modifier.fillMaxWidth(),
@@ -138,7 +187,7 @@ private fun ListaTratte(
                         IconButton(onClick = { onSposta(tratta, -1) }, enabled = indice > 0) {
                             Icon(Icons.Filled.ArrowUpward, contentDescription = "Sposta su")
                         }
-                        IconButton(onClick = { onSposta(tratta, 1) }, enabled = indice < tratte.size - 1) {
+                        IconButton(onClick = { onSposta(tratta, 1) }, enabled = indice < tratteFiltrate.size - 1) {
                             Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
                         }
                         IconButton(onClick = { onClona(tratta) }) {
@@ -162,6 +211,7 @@ private fun ListaTratte(
                     Text("${tratta.tipo} · $luoghi ($durataMargine)$vettoreSuffisso", style = MaterialTheme.typography.bodySmall)
                 }
             }
+        }
         }
     }
 
