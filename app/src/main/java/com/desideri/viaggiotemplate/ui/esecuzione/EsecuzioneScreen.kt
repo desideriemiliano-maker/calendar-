@@ -174,9 +174,11 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
             }
 
             items(stato.eventiCalcolati, key = { it.templateSlotId }) { evento ->
+                val eAncora = stato.templateSelezionato?.slots?.firstOrNull { it.id == evento.templateSlotId }?.ancora == true
                 CardEvento(
                     evento = evento,
                     data = stato.data,
+                    eAncora = eAncora,
                     onScegliAlternativa = { nuovaTrattaId ->
                         viewModel.scegliAlternativa(evento.templateSlotId, nuovaTrattaId)
                     },
@@ -455,6 +457,7 @@ private fun DialogAggiungiTratta(
 private fun CardEvento(
     evento: EventoCalcolato,
     data: LocalDate,
+    eAncora: Boolean,
     onScegliAlternativa: (String) -> Unit,
     onModificaManuale: (LocalTime, LocalTime) -> Unit,
     onElimina: () -> Unit,
@@ -464,7 +467,10 @@ private fun CardEvento(
     var confermaEliminazione by remember { mutableStateOf(false) }
     var caricamentoSbb by remember { mutableStateOf(false) }
     var erroreSbb by remember { mutableStateOf<String?>(null) }
-    val puoScaricareSbb = evento.tratta.tipo == TipoTratta.TRENO && evento.tratta.vettore == Vettore.SBB
+    // Per la tratta ancora l'orario non passa dalla scelta tra candidati (è l'input diretto del
+    // calcolo, gestito dal selettore Ricorrente/Fisso/SBB sopra): qui il pulsante non avrebbe
+    // alcun effetto, quindi va mostrato solo per le tratte calcolate, non per l'ancora.
+    val puoScaricareSbb = !eAncora && evento.tratta.tipo == TipoTratta.TRENO && evento.tratta.vettore == Vettore.SBB
     val client = remember { OrariTrasportiSvizzeriClient() }
     val scope = rememberCoroutineScope()
 
