@@ -37,6 +37,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +47,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
+import com.desideri.viaggiotemplate.data.remote.OrariTrasportiSvizzeriClient
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
 import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
@@ -57,6 +59,9 @@ import com.desideri.viaggiotemplate.ui.common.CampoData
 import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 import com.desideri.viaggiotemplate.ui.common.RicercaOrariSbb
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -178,7 +183,10 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                     onModificaManuale = { inizio, fine ->
                         viewModel.sovrascriviEvento(evento.templateSlotId, inizio, fine)
                     },
-                    onElimina = { viewModel.eliminaEvento(evento.templateSlotId) }
+                    onElimina = { viewModel.eliminaEvento(evento.templateSlotId) },
+                    onCorseScaricate = { corse ->
+                        viewModel.applicaCorseScaricate(evento.templateSlotId, evento.tratta.id, corse)
+                    }
                 )
             }
 
@@ -449,12 +457,16 @@ private fun CardEvento(
     data: LocalDate,
     onScegliAlternativa: (String) -> Unit,
     onModificaManuale: (LocalTime, LocalTime) -> Unit,
-    onElimina: () -> Unit
+    onElimina: () -> Unit,
+    onCorseScaricate: (List<CorsaScaricata>) -> Unit
 ) {
     var modificaManuale by remember { mutableStateOf(false) }
     var confermaEliminazione by remember { mutableStateOf(false) }
-    var mostraDialogSbb by remember { mutableStateOf(false) }
+    var caricamentoSbb by remember { mutableStateOf(false) }
+    var erroreSbb by remember { mutableStateOf<String?>(null) }
     val puoScaricareSbb = evento.tratta.tipo == TipoTratta.TRENO && evento.tratta.vettore == Vettore.SBB
+    val client = remember { OrariTrasportiSvizzeriClient() }
+    val scope = rememberCoroutineScope()
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -497,7 +509,34 @@ private fun CardEvento(
                 )
             }
             if (puoScaricareSbb) {
-                TextButton(onClick = { mostraDialogSbb = true }) { Text("Verifica su SBB per il ${data.format(FORMATO_DATA)}") }
+                TextButton(
+                    onClick = {
+                        erroreSbb = null
+                        caricamentoSbb = true
+                        scope.launch {
+                            try {
+                                val corse = withContext(Dispatchers.IO) {
+                                    client.cercaCorse(evento.tratta.luogoPartenza, evento.tratta.luogoArrivo, data)
+                                }
+                                if (corse.isEmpty()) {
+                                    erroreSbb = "Nessuna corsa trovata per questa data."
+                                } else {
+                                    onCorseScaricate(corse)
+                                }
+                            } catch (e: Exception) {
+                                erroreSbb = "Impossibile scaricare gli orari: ${e.message ?: "errore di rete"}"
+                            } finally {
+                                caricamentoSbb = false
+                            }
+                        }
+                    },
+                    enabled = !caricamentoSbb
+                ) {
+                    Text(
+                        if (caricamentoSbb) "Ricerca su SBB…" else "Aggiorna con orario reale SBB per il ${data.format(FORMATO_DATA)}"
+                    )
+                }
+                erroreSbb?.let { msg -> Text(msg, style = MaterialTheme.typography.bodySmall) }
             }
         }
     }
@@ -507,15 +546,6 @@ private fun CardEvento(
             nomeElemento = evento.tratta.nome,
             onConferma = { onElimina(); confermaEliminazione = false },
             onAnnulla = { confermaEliminazione = false }
-        )
-    }
-    if (mostraDialogSbb) {
-        DialogScaricaOrarioSbbSingolo(
-            daStazione = evento.tratta.luogoPartenza,
-            aStazione = evento.tratta.luogoArrivo,
-            data = data,
-            onScelto = { corsa -> onModificaManuale(corsa.partenza, corsa.arrivo); mostraDialogSbb = false },
-            onDismiss = { mostraDialogSbb = false }
         )
     }
 }

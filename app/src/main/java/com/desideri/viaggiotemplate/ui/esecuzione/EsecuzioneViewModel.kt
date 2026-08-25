@@ -6,11 +6,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.desideri.viaggiotemplate.data.local.ImpostazioniStore
 import com.desideri.viaggiotemplate.data.local.entities.TemplateEntity
+import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
 import com.desideri.viaggiotemplate.domain.calcolo.MotoreCalcolo
 import com.desideri.viaggiotemplate.domain.calcolo.SlotRisolto
+import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
 import com.desideri.viaggiotemplate.domain.calendar.CalendarWriter
 import com.desideri.viaggiotemplate.domain.calendar.CalendarioDisponibile
+import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
@@ -200,6 +203,31 @@ class EsecuzioneViewModel(
         val s = _stato.value
         _stato.value = s.copy(ancoreManuali = s.ancoreManuali + (templateSlotId to (nuovoInizio to nuovaFine)))
         eseguiCalcolo()
+    }
+
+    /**
+     * Inietta le corse scaricate (es. da SBB) come candidati aggiuntivi ("orari fissi" validi
+     * solo per questa esecuzione) sulla tratta indicata, e rilancia il calcolo: il motore sceglie
+     * automaticamente la corsa migliore con la stessa logica già usata per fissi/ricorrenti
+     * (margine rispetto alle tratte adiacenti), non un'aggiunta scelta a mano. Il risultato scelto
+     * diventa poi un'ancora manuale, cosi da restare fisso anche se altre correzioni successive
+     * ricalcolano le tratte vicine.
+     */
+    fun applicaCorseScaricate(templateSlotId: String, trattaId: String, corse: List<CorsaScaricata>) {
+        val s = _stato.value
+        val trattaEsistente = s.tratte[trattaId] ?: return
+        val orariScaricati = corse.map {
+            OrarioFisso(id = UUID.randomUUID().toString(), partenza = it.partenza, arrivo = it.arrivo, etichetta = it.etichetta.ifBlank { null })
+        }
+        val trattaArricchita = trattaEsistente.copy(orariFissi = trattaEsistente.orariFissi + orariScaricati)
+        _stato.value = s.copy(tratte = s.tratte + (trattaId to trattaArricchita))
+        eseguiCalcolo()
+
+        val evento = _stato.value.eventiCalcolati.firstOrNull { it.templateSlotId == templateSlotId } ?: return
+        sovrascriviEvento(templateSlotId, evento.inizioReale, evento.fineReale)
+        _stato.value = _stato.value.copy(
+            messaggio = "Orario aggiornato con la corsa reale delle ${evento.inizioReale.toStringHHmm()}"
+        )
     }
 
     /**
