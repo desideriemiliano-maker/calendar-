@@ -158,7 +158,8 @@ private fun ListaTratte(
                     } else {
                         "${tratta.durataMinutiReale}+${tratta.margineMinuti} min"
                     }
-                    Text("${tratta.tipo} · $luoghi ($durataMargine)", style = MaterialTheme.typography.bodySmall)
+                    val vettoreSuffisso = tratta.vettore?.let { " · $it" } ?: ""
+                    Text("${tratta.tipo} · $luoghi ($durataMargine)$vettoreSuffisso", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

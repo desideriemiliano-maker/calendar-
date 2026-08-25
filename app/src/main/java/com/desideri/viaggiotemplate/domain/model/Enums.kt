@@ -14,3 +14,11 @@ enum class Arrotondamento {
     DIFETTO,   // verso il basso (usato tipicamente per l'inizio)
     ECCESSO    // verso l'alto (usato tipicamente per la fine)
 }
+
+/** Vettore ferroviario di una tratta TRENO (solo informativo, non influenza il motore di calcolo). */
+enum class Vettore {
+    TRENITALIA,
+    ITALO,
+    SBB,
+    ALTRO
+}

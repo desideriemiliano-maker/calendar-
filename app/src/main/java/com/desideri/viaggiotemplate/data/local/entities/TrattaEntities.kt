@@ -22,7 +22,9 @@ data class TrattaEntity(
     val ordine: Int = 0,
     val colore: Int? = null,
     /** Minuti dalla mezzanotte (0-1439); null se non impostato. */
-    val orarioInizioDefaultMinuti: Int? = null
+    val orarioInizioDefaultMinuti: Int? = null,
+    /** Vettore.name, solo per TRENO; null = non specificato. */
+    val vettore: String? = null
 )
 
 @Entity(

@@ -31,6 +31,7 @@ import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
+import com.desideri.viaggiotemplate.domain.model.Vettore
 import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.CampoOrarioOpzionale
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
@@ -60,6 +61,7 @@ fun TrattaEditorScreen(
     }
     var opzioni by remember { mutableStateOf(trattaEsistente?.opzioniOrario ?: emptyList()) }
     var orariFissi by remember { mutableStateOf(trattaEsistente?.orariFissi ?: emptyList()) }
+    var vettore by remember { mutableStateOf(trattaEsistente?.vettore) }
     var colore by remember { mutableStateOf(trattaEsistente?.colore) }
     var orarioInizioDefault by remember { mutableStateOf<LocalTime?>(trattaEsistente?.orarioInizioDefault) }
 
@@ -110,6 +112,8 @@ fun TrattaEditorScreen(
                     label = { Text("Durata reale (min)") }, modifier = Modifier.fillMaxWidth()
                 )
             }
+        } else {
+            item { SelettoreVettore(vettore) { vettore = it } }
         }
         item {
             OutlinedTextField(
@@ -207,6 +211,7 @@ fun TrattaEditorScreen(
                         titoloTemplate = titoloTemplate,
                         opzioniOrario = opzioni,
                         orariFissi = if (tipo == TipoTratta.TRENO) orariFissi else emptyList(),
+                        vettore = if (tipo == TipoTratta.TRENO) vettore else null,
                         ordine = trattaEsistente?.ordine ?: ordineIniziale(),
                         colore = colore,
                         orarioInizioDefault = if (tipo == TipoTratta.RIUNIONE) orarioInizioDefault else null
@@ -232,6 +237,26 @@ private fun SelettoreTipo(tipo: TipoTratta, onCambia: (TipoTratta) -> Unit) {
         )
         DropdownMenu(expanded = espanso, onDismissRequest = { espanso = false }) {
             TipoTratta.values().forEach { opzione ->
+                DropdownMenuItem(text = { Text(opzione.name) }, onClick = { onCambia(opzione); espanso = false })
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelettoreVettore(vettore: Vettore?, onCambia: (Vettore?) -> Unit) {
+    var espanso by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = espanso, onExpandedChange = { espanso = it }) {
+        OutlinedTextField(
+            value = vettore?.name ?: "Non specificato", onValueChange = {}, readOnly = true,
+            label = { Text("Vettore") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = espanso) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+        )
+        DropdownMenu(expanded = espanso, onDismissRequest = { espanso = false }) {
+            DropdownMenuItem(text = { Text("Non specificato") }, onClick = { onCambia(null); espanso = false })
+            Vettore.values().forEach { opzione ->
                 DropdownMenuItem(text = { Text(opzione.name) }, onClick = { onCambia(opzione); espanso = false })
             }
         }

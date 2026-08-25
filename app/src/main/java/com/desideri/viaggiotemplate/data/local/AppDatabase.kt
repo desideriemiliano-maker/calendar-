@@ -22,7 +22,7 @@ import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
         TemplateSlotCandidatoEntity::class,
         TemplateSlotEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -69,5 +69,11 @@ val MIGRATION_4_5: Migration = object : Migration(4, 5) {
             )
             """.trimIndent()
         )
+    }
+}
+
+val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE tratta ADD COLUMN vettore TEXT")
     }
 }

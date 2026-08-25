@@ -31,6 +31,8 @@ data class Tratta(
      * il migliore tra i due in base alle condizioni delle tratte adiacenti.
      */
     val orariFissi: List<OrarioFisso> = emptyList(),
+    /** Vettore ferroviario, solo per TRENO; null = non specificato. */
+    val vettore: Vettore? = null,
     val ordine: Int = 0,
     /** Colore ARGB della card in libreria; null = colore grigio di default del tema. */
     val colore: Int? = null,

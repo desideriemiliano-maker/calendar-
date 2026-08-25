@@ -9,6 +9,7 @@ import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
+import com.desideri.viaggiotemplate.domain.model.Vettore
 import java.time.LocalTime
 
 fun TrattaConOpzioni.toDomain(): Tratta = Tratta(
@@ -25,6 +26,7 @@ fun TrattaConOpzioni.toDomain(): Tratta = Tratta(
     titoloTemplate = tratta.titoloTemplate,
     opzioniOrario = opzioni.map { it.toDomain() },
     orariFissi = orariFissi.map { it.toDomain() },
+    vettore = tratta.vettore?.let { Vettore.valueOf(it) },
     ordine = tratta.ordine,
     colore = tratta.colore,
     orarioInizioDefault = tratta.orarioInizioDefaultMinuti?.let { LocalTime.of(it / 60, it % 60) }
@@ -61,7 +63,8 @@ fun Tratta.toEntity(): TrattaEntity = TrattaEntity(
     titoloTemplate = titoloTemplate,
     ordine = ordine,
     colore = colore,
-    orarioInizioDefaultMinuti = orarioInizioDefault?.let { it.hour * 60 + it.minute }
+    orarioInizioDefaultMinuti = orarioInizioDefault?.let { it.hour * 60 + it.minute },
+    vettore = vettore?.name
 )
 
 fun Tratta.opzioniToEntity(): List<OpzioneOrarioEntity> = opzioniOrario.map {
