@@ -45,15 +45,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
 import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
+import com.desideri.viaggiotemplate.domain.model.TipoTratta
+import com.desideri.viaggiotemplate.domain.model.Vettore
 import com.desideri.viaggiotemplate.ui.common.CampoData
 import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
+import com.desideri.viaggiotemplate.ui.common.RicercaOrariSbb
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,9 +126,11 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                         )
                         val (inizioInput, fineInput) = stato.orariAncoreInput[slot.id]
                             ?: (LocalTime.of(9, 0) to LocalTime.of(9, 30))
-                        if (trattaAncora != null && trattaAncora.orariFissi.isNotEmpty()) {
+                        val puoScaricareSbb = trattaAncora?.tipo == TipoTratta.TRENO && trattaAncora.vettore == Vettore.SBB
+                        if (trattaAncora != null && (trattaAncora.orariFissi.isNotEmpty() || puoScaricareSbb)) {
                             SelettoreOrarioAncora(
-                                orariFissi = trattaAncora.orariFissi,
+                                tratta = trattaAncora,
+                                data = stato.data,
                                 inizio = inizioInput,
                                 fine = fineInput,
                                 onCambia = { i, f -> viewModel.aggiornaOrarioAncora(slot.id, i, f) }
@@ -163,6 +171,7 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
             items(stato.eventiCalcolati, key = { it.templateSlotId }) { evento ->
                 CardEvento(
                     evento = evento,
+                    data = stato.data,
                     onScegliAlternativa = { nuovaTrattaId ->
                         viewModel.scegliAlternativa(evento.templateSlotId, nuovaTrattaId)
                     },
@@ -227,50 +236,121 @@ private fun RigaOrario(
     }
 }
 
+private enum class ModoOrarioAncora { RICORRENTE, FISSO, SBB }
+
 /**
- * Per una tratta-ancora TRENO con orari fissi configurati: scelta tra un orario fisso
- * (dropdown, tra quelli definiti sulla Tratta) e l'orario ricorrente inserito a mano.
+ * Per una tratta-ancora TRENO con orari fissi configurati e/o vettore SBB: scelta tra l'orario
+ * ricorrente inserito a mano, un orario fisso (dropdown, tra quelli definiti sulla Tratta) e —
+ * se il vettore e' SBB — gli orari reali scaricati per la data del viaggio (gia' nota qui).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SelettoreOrarioAncora(
-    orariFissi: List<OrarioFisso>,
+    tratta: Tratta,
+    data: LocalDate,
     inizio: LocalTime,
     fine: LocalTime,
     onCambia: (LocalTime, LocalTime) -> Unit
 ) {
-    var usaFisso by remember { mutableStateOf(false) }
+    val orariFissi = tratta.orariFissi
+    val puoScaricareSbb = tratta.tipo == TipoTratta.TRENO && tratta.vettore == Vettore.SBB
+    var modo by remember { mutableStateOf(ModoOrarioAncora.RICORRENTE) }
+    var mostraDialogSbb by remember { mutableStateOf(false) }
+
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { usaFisso = false }) { Text(if (!usaFisso) "● Ricorrente" else "Ricorrente") }
-            TextButton(onClick = {
-                usaFisso = true
-                orariFissi.firstOrNull()?.let { onCambia(it.partenza, it.arrivo) }
-            }) { Text(if (usaFisso) "● Fisso" else "Fisso") }
+            TextButton(onClick = { modo = ModoOrarioAncora.RICORRENTE }) {
+                Text(if (modo == ModoOrarioAncora.RICORRENTE) "● Ricorrente" else "Ricorrente")
+            }
+            if (orariFissi.isNotEmpty()) {
+                TextButton(onClick = {
+                    modo = ModoOrarioAncora.FISSO
+                    orariFissi.firstOrNull()?.let { onCambia(it.partenza, it.arrivo) }
+                }) { Text(if (modo == ModoOrarioAncora.FISSO) "● Fisso" else "Fisso") }
+            }
+            if (puoScaricareSbb) {
+                TextButton(onClick = { modo = ModoOrarioAncora.SBB; mostraDialogSbb = true }) {
+                    Text(if (modo == ModoOrarioAncora.SBB) "● SBB" else "SBB")
+                }
+            }
         }
-        if (usaFisso) {
-            var espanso by remember { mutableStateOf(false) }
-            val selezionato = orariFissi.firstOrNull { it.partenza == inizio && it.arrivo == fine } ?: orariFissi.first()
-            fun etichetta(o: OrarioFisso) = (o.etichetta?.let { "$it — " } ?: "") + "${o.partenza.toStringHHmm()} → ${o.arrivo.toStringHHmm()}"
-            ExposedDropdownMenuBox(expanded = espanso, onExpandedChange = { espanso = it }) {
-                OutlinedTextField(
-                    value = etichetta(selezionato),
-                    onValueChange = {}, readOnly = true,
-                    label = { Text("Orario fisso") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = espanso) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
-                )
-                DropdownMenu(expanded = espanso, onDismissRequest = { espanso = false }) {
-                    orariFissi.forEach { fisso ->
-                        DropdownMenuItem(
-                            text = { Text(etichetta(fisso)) },
-                            onClick = { onCambia(fisso.partenza, fisso.arrivo); espanso = false }
-                        )
+        when (modo) {
+            ModoOrarioAncora.RICORRENTE -> RigaOrario(inizio = inizio, fine = fine, onCambia = onCambia)
+            ModoOrarioAncora.FISSO -> {
+                var espanso by remember { mutableStateOf(false) }
+                val selezionato = orariFissi.firstOrNull { it.partenza == inizio && it.arrivo == fine } ?: orariFissi.first()
+                fun etichetta(o: OrarioFisso) = (o.etichetta?.let { "$it — " } ?: "") + "${o.partenza.toStringHHmm()} → ${o.arrivo.toStringHHmm()}"
+                ExposedDropdownMenuBox(expanded = espanso, onExpandedChange = { espanso = it }) {
+                    OutlinedTextField(
+                        value = etichetta(selezionato),
+                        onValueChange = {}, readOnly = true,
+                        label = { Text("Orario fisso") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = espanso) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+                    )
+                    DropdownMenu(expanded = espanso, onDismissRequest = { espanso = false }) {
+                        orariFissi.forEach { fisso ->
+                            DropdownMenuItem(
+                                text = { Text(etichetta(fisso)) },
+                                onClick = { onCambia(fisso.partenza, fisso.arrivo); espanso = false }
+                            )
+                        }
                     }
                 }
             }
-        } else {
-            RigaOrario(inizio = inizio, fine = fine, onCambia = onCambia)
+            ModoOrarioAncora.SBB -> {
+                Text("${inizio.toStringHHmm()} → ${fine.toStringHHmm()}", style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = { mostraDialogSbb = true }) { Text("Cerca su SBB per il ${data.format(FORMATO_DATA)}") }
+            }
+        }
+    }
+
+    if (mostraDialogSbb) {
+        DialogScaricaOrarioSbbSingolo(
+            daStazione = tratta.luogoPartenza,
+            aStazione = tratta.luogoArrivo,
+            data = data,
+            onScelto = { corsa -> onCambia(corsa.partenza, corsa.arrivo); mostraDialogSbb = false },
+            onDismiss = { mostraDialogSbb = false }
+        )
+    }
+}
+
+private val FORMATO_DATA: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+/** Cerca gli orari reali su SBB per una data gia' nota (quella del viaggio) e ne fa scegliere uno. */
+@Composable
+private fun DialogScaricaOrarioSbbSingolo(
+    daStazione: String,
+    aStazione: String,
+    data: LocalDate,
+    onScelto: (CorsaScaricata) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(24.dp).heightIn(max = 520.dp)) {
+                Text("Orari SBB per il ${data.format(FORMATO_DATA)}", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "$daStazione → $aStazione, dati da transport.opendata.ch (trasporti pubblici svizzeri).",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+
+                RicercaOrariSbb(
+                    daStazione = daStazione,
+                    aStazione = aStazione,
+                    data = data,
+                    chiaveRicerca = Unit,
+                    testoAzione = { "Usa" },
+                    azioneAbilitata = { true },
+                    onAzione = { corsa -> onScelto(corsa) }
+                )
+
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Chiudi") }
+                }
+            }
         }
     }
 }
@@ -366,12 +446,15 @@ private fun DialogAggiungiTratta(
 @Composable
 private fun CardEvento(
     evento: EventoCalcolato,
+    data: LocalDate,
     onScegliAlternativa: (String) -> Unit,
     onModificaManuale: (LocalTime, LocalTime) -> Unit,
     onElimina: () -> Unit
 ) {
     var modificaManuale by remember { mutableStateOf(false) }
     var confermaEliminazione by remember { mutableStateOf(false) }
+    var mostraDialogSbb by remember { mutableStateOf(false) }
+    val puoScaricareSbb = evento.tratta.tipo == TipoTratta.TRENO && evento.tratta.vettore == Vettore.SBB
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -413,6 +496,9 @@ private fun CardEvento(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
+            if (puoScaricareSbb) {
+                TextButton(onClick = { mostraDialogSbb = true }) { Text("Verifica su SBB per il ${data.format(FORMATO_DATA)}") }
+            }
         }
     }
 
@@ -421,6 +507,15 @@ private fun CardEvento(
             nomeElemento = evento.tratta.nome,
             onConferma = { onElimina(); confermaEliminazione = false },
             onAnnulla = { confermaEliminazione = false }
+        )
+    }
+    if (mostraDialogSbb) {
+        DialogScaricaOrarioSbbSingolo(
+            daStazione = evento.tratta.luogoPartenza,
+            aStazione = evento.tratta.luogoArrivo,
+            data = data,
+            onScelto = { corsa -> onModificaManuale(corsa.partenza, corsa.arrivo); mostraDialogSbb = false },
+            onDismiss = { mostraDialogSbb = false }
         )
     }
 }

@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,14 +26,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
-import com.desideri.viaggiotemplate.data.remote.OrariTrasportiSvizzeriClient
-import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
 import com.desideri.viaggiotemplate.domain.model.Arrotondamento
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
@@ -44,10 +40,8 @@ import com.desideri.viaggiotemplate.domain.model.Vettore
 import com.desideri.viaggiotemplate.ui.common.CampoData
 import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.CampoOrarioOpzionale
+import com.desideri.viaggiotemplate.ui.common.RicercaOrariSbb
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
@@ -419,30 +413,9 @@ private fun DialogScaricaOrariSbb(
     onAggiungi: (CorsaScaricata) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val client = remember { OrariTrasportiSvizzeriClient() }
-    val scope = rememberCoroutineScope()
-
     var data by remember { mutableStateOf(LocalDate.now()) }
-    var inCorso by remember { mutableStateOf(false) }
-    var errore by remember { mutableStateOf<String?>(null) }
-    var risultati by remember { mutableStateOf<List<CorsaScaricata>>(emptyList()) }
+    var chiaveRicerca by remember { mutableStateOf(0) }
     var aggiunte by remember { mutableStateOf(setOf<CorsaScaricata>()) }
-
-    fun cerca() {
-        inCorso = true
-        errore = null
-        scope.launch {
-            try {
-                val corse = withContext(Dispatchers.IO) { client.cercaCorse(daStazione, aStazione, data) }
-                risultati = corse
-                if (corse.isEmpty()) errore = "Nessuna corsa trovata per questa data."
-            } catch (e: Exception) {
-                errore = "Impossibile scaricare gli orari: ${e.message ?: "errore di rete"}"
-            } finally {
-                inCorso = false
-            }
-        }
-    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
@@ -456,35 +429,18 @@ private fun DialogScaricaOrariSbb(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CampoData(valore = data, onValoreCambiato = { data = it }, modifier = Modifier.weight(1f))
-                    Button(onClick = { cerca() }, enabled = !inCorso) { Text("Cerca") }
+                    Button(onClick = { chiaveRicerca++ }) { Text("Cerca") }
                 }
 
-                if (inCorso) {
-                    Row(modifier = Modifier.padding(top = 12.dp)) { CircularProgressIndicator() }
-                }
-                errore?.let { msg ->
-                    Text(msg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 12.dp))
-                }
-
-                LazyColumn(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(risultati) { corsa ->
-                        val giaAggiunta = corsa in aggiunte
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                "${corsa.partenza.toStringHHmm()} → ${corsa.arrivo.toStringHHmm()}" +
-                                    if (corsa.etichetta.isNotBlank()) " (${corsa.etichetta})" else "",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            TextButton(
-                                onClick = { onAggiungi(corsa); aggiunte = aggiunte + corsa },
-                                enabled = !giaAggiunta
-                            ) { Text(if (giaAggiunta) "Aggiunta" else "+ Aggiungi") }
-                        }
-                    }
-                }
+                RicercaOrariSbb(
+                    daStazione = daStazione,
+                    aStazione = aStazione,
+                    data = data,
+                    chiaveRicerca = chiaveRicerca,
+                    testoAzione = { corsa -> if (corsa in aggiunte) "Aggiunta" else "+ Aggiungi" },
+                    azioneAbilitata = { corsa -> corsa !in aggiunte },
+                    onAzione = { corsa -> onAggiungi(corsa); aggiunte = aggiunte + corsa }
+                )
 
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss) { Text("Chiudi") }
