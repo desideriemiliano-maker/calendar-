@@ -26,7 +26,12 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Train
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -101,6 +106,7 @@ fun TratteScreen(viewModel: TratteViewModel = viewModel(factory = TratteViewMode
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ListaTratte(
     tratte: List<Tratta>,
@@ -113,6 +119,7 @@ private fun ListaTratte(
     var trattaDaEliminare by remember { mutableStateOf<Tratta?>(null) }
     var filtroTipo by remember { mutableStateOf<TipoTratta?>(null) }
     var testoRicerca by remember { mutableStateOf("") }
+    var menuFiltroEspanso by remember { mutableStateOf(false) }
 
     val tratteFiltrate = remember(tratte, filtroTipo, testoRicerca) {
         tratte.filter { tratta ->
@@ -126,32 +133,62 @@ private fun ListaTratte(
 
     Column(modifier = Modifier.fillMaxSize().padding(padding)) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            OutlinedTextField(
-                value = testoRicerca,
-                onValueChange = { testoRicerca = it },
-                label = { Text("Cerca (nome o luogo)") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (testoRicerca.isNotEmpty()) {
-                        IconButton(onClick = { testoRicerca = "" }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Cancella ricerca")
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = testoRicerca,
+                    onValueChange = { testoRicerca = it },
+                    label = { Text("Cerca") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (testoRicerca.isNotEmpty()) {
+                            IconButton(onClick = { testoRicerca = "" }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Cancella ricerca")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                ExposedDropdownMenuBox(
+                    expanded = menuFiltroEspanso,
+                    onExpandedChange = { menuFiltroEspanso = it },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    OutlinedTextField(
+                        value = filtroTipo?.name ?: "Tutti",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Tipo") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuFiltroEspanso) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+                    )
+                    DropdownMenu(
+                        expanded = menuFiltroEspanso,
+                        onDismissRequest = { menuFiltroEspanso = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Tutti") },
+                            onClick = {
+                                filtroTipo = null
+                                menuFiltroEspanso = false
+                            }
+                        )
+                        TipoTratta.values().forEach { tipo ->
+                            DropdownMenuItem(
+                                text = { Text(tipo.name) },
+                                onClick = {
+                                    filtroTipo = tipo
+                                    menuFiltroEspanso = false
+                                }
+                            )
                         }
                     }
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(
-                modifier = Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(selected = filtroTipo == null, onClick = { filtroTipo = null }, label = { Text("Tutti") })
-                TipoTratta.values().forEach { tipo ->
-                    FilterChip(
-                        selected = filtroTipo == tipo,
-                        onClick = { filtroTipo = if (filtroTipo == tipo) null else tipo },
-                        label = { Text(tipo.name) }
-                    )
                 }
             }
         }
