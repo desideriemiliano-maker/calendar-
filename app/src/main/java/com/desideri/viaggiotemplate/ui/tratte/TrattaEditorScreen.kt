@@ -105,14 +105,15 @@ fun TrattaEditorScreen(
                 }
             }
         }
-        if (tipo != TipoTratta.TRENO) {
+        if (!tipo.usaOrariProgrammati) {
             item {
                 OutlinedTextField(
                     value = durataMinuti, onValueChange = { durataMinuti = it },
                     label = { Text("Durata reale (min)") }, modifier = Modifier.fillMaxWidth()
                 )
             }
-        } else {
+        }
+        if (tipo == TipoTratta.TRENO) {
             item { SelettoreVettore(vettore) { vettore = it } }
         }
         item {
@@ -141,7 +142,7 @@ fun TrattaEditorScreen(
             )
         }
 
-        if (tipo == TipoTratta.TRENO) {
+        if (tipo.usaOrariProgrammati) {
             item { Text("Opzioni orario", style = androidx.compose.material3.MaterialTheme.typography.titleSmall) }
             items(opzioni, key = { it.id }) { opzione ->
                 EditorOpzioneOrario(
@@ -209,8 +210,8 @@ fun TrattaEditorScreen(
                         arrotondaFine = arrotondaFine,
                         stepArrotondamentoMinuti = step.toIntOrNull() ?: 10,
                         titoloTemplate = titoloTemplate,
-                        opzioniOrario = opzioni,
-                        orariFissi = if (tipo == TipoTratta.TRENO) orariFissi else emptyList(),
+                        opzioniOrario = if (tipo.usaOrariProgrammati) opzioni else emptyList(),
+                        orariFissi = if (tipo.usaOrariProgrammati) orariFissi else emptyList(),
                         vettore = if (tipo == TipoTratta.TRENO) vettore else null,
                         ordine = trattaEsistente?.ordine ?: ordineIniziale(),
                         colore = colore,

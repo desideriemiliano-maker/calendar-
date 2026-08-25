@@ -5,7 +5,12 @@ enum class TipoTratta {
     TRENO,
     AUTO,
     RIUNIONE,
-    A_PIEDI
+    A_PIEDI,
+    AEREO;
+
+    /** True per i tipi con orari programmati (opzioni ricorrenti + orari fissi), come i treni. */
+    val usaOrariProgrammati: Boolean
+        get() = this == TRENO || this == AEREO
 }
 
 /** Direzione di arrotondamento per inizio/fine del blocco calendario. */

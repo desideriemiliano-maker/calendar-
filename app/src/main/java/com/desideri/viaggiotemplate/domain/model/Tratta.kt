@@ -47,6 +47,7 @@ data class Tratta(
         /** Margine di default suggerito in base al tipo, coerente con quanto validato negli strumenti HTML. */
         fun margineDefaultPerTipo(tipo: TipoTratta): Int = when (tipo) {
             TipoTratta.TRENO -> 20
+            TipoTratta.AEREO -> 60
             TipoTratta.AUTO, TipoTratta.RIUNIONE -> 5
             TipoTratta.A_PIEDI -> 0
         }

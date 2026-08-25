@@ -352,4 +352,25 @@ class MotoreCalcoloTest {
         assertEquals(LocalTime.of(14, 32), eventi[1].inizioReale)
         assertEquals(LocalTime.of(15, 10), eventi[1].fineReale)
     }
+
+    @Test
+    fun `tratta AEREO usa gli orari fissi come una tratta TRENO`() {
+        val volo = Tratta(
+            id = "volo", nome = "volo", tipo = TipoTratta.AEREO,
+            luogoPartenza = "Milano", luogoArrivo = "Roma",
+            durataMinutiReale = 0, margineMinuti = 60,
+            orariFissi = listOf(OrarioFisso(id = "f1", partenza = LocalTime.of(7, 30), arrivo = LocalTime.of(8, 45)))
+        )
+        val ancora = trattaAuto("ancora", durata = 0, margine = 0)
+
+        val risolti = listOf(
+            SlotRisolto(slot("s0", 0, ancora = false, selezionataId = volo.id), volo, listOf(volo)),
+            SlotRisolto(slot("s1", 1, ancora = true, selezionataId = ancora.id), ancora, listOf(ancora))
+        )
+
+        val eventi = motore.calcola(risolti, ancora(1, LocalTime.of(10, 0), LocalTime.of(10, 20)))
+
+        assertEquals(LocalTime.of(7, 30), eventi[0].inizioReale)
+        assertEquals(LocalTime.of(8, 45), eventi[0].fineReale)
+    }
 }

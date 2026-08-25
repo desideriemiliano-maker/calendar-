@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
@@ -202,7 +203,7 @@ private fun ListaTratte(
                     } else {
                         "${tratta.luogoPartenza} → ${tratta.luogoArrivo}"
                     }
-                    val durataMargine = if (tratta.tipo == TipoTratta.TRENO) {
+                    val durataMargine = if (tratta.tipo.usaOrariProgrammati) {
                         "${tratta.margineMinuti} min"
                     } else {
                         "${tratta.durataMinutiReale}+${tratta.margineMinuti} min"
@@ -226,6 +227,7 @@ private fun ListaTratte(
 
 private fun iconaPerTipo(tipo: TipoTratta): ImageVector = when (tipo) {
     TipoTratta.TRENO -> Icons.Filled.Train
+    TipoTratta.AEREO -> Icons.Filled.Flight
     TipoTratta.AUTO -> Icons.Filled.DirectionsCar
     TipoTratta.RIUNIONE -> Icons.Filled.Groups
     TipoTratta.A_PIEDI -> Icons.AutoMirrored.Filled.DirectionsWalk

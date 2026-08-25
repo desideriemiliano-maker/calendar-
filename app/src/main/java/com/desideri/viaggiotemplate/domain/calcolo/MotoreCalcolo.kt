@@ -6,7 +6,6 @@ import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
-import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import java.time.LocalTime
 
 /**
@@ -108,7 +107,7 @@ class MotoreCalcolo {
 
     /** Calcola inizio/fine di una tratta andando all'indietro da un deadline di arrivo massimo. */
     private fun calcolaIndietro(tratta: Tratta, deadlineArrivoMassimo: LocalTime): Pair<LocalTime, LocalTime> {
-        return if (tratta.tipo == TipoTratta.TRENO) {
+        return if (tratta.tipo.usaOrariProgrammati) {
             val opzione = trovaUltimoSlotConArrivoEntro(tratta, deadlineArrivoMassimo)
                 ?: error("Nessuno slot disponibile per ${tratta.nome} entro $deadlineArrivoMassimo")
             opzione
@@ -121,7 +120,7 @@ class MotoreCalcolo {
 
     /** Calcola inizio/fine di una tratta andando in avanti da un deadline di partenza minimo. */
     private fun calcolaAvanti(tratta: Tratta, deadlinePartenzaMinima: LocalTime): Pair<LocalTime, LocalTime> {
-        return if (tratta.tipo == TipoTratta.TRENO) {
+        return if (tratta.tipo.usaOrariProgrammati) {
             val opzione = trovaPrimoSlotConPartenzaDa(tratta, deadlinePartenzaMinima)
                 ?: error("Nessuno slot disponibile per ${tratta.nome} da $deadlinePartenzaMinima")
             opzione
