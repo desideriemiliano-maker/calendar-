@@ -24,13 +24,28 @@ data class CorsaScaricata(
 class OrariTrasportiSvizzeriClient {
 
     private val formatoData = DateTimeFormatter.ofPattern("dd-MM-yyyy")
+    private val formatoOra = DateTimeFormatter.ofPattern("HH:mm")
 
-    /** @throws java.io.IOException se la richiesta di rete fallisce. */
-    fun cercaCorse(daStazione: String, aStazione: String, data: LocalDate, limite: Int = 16): List<CorsaScaricata> {
+    /**
+     * @param oraRiferimento le corse restituite partono da qui in poi (in ordine cronologico).
+     *   Se omesso l'API di transport.opendata.ch NON usa la mezzanotte della data richiesta come
+     *   si potrebbe pensare, ma l'ora corrente del momento della richiesta: passarlo esplicitamente
+     *   e' necessario, altrimenti per una data futura o passata si ottengono corse fuori contesto
+     *   (tipicamente della primissima mattina del giorno dopo).
+     * @throws java.io.IOException se la richiesta di rete fallisce.
+     */
+    fun cercaCorse(
+        daStazione: String,
+        aStazione: String,
+        data: LocalDate,
+        oraRiferimento: LocalTime = LocalTime.MIDNIGHT,
+        limite: Int = 16
+    ): List<CorsaScaricata> {
         val url = "https://transport.opendata.ch/v1/connections" +
             "?from=${URLEncoder.encode(daStazione, "UTF-8")}" +
             "&to=${URLEncoder.encode(aStazione, "UTF-8")}" +
             "&date=${data.format(formatoData)}" +
+            "&time=${oraRiferimento.format(formatoOra)}" +
             "&limit=$limite"
         val connessione = URL(url).openConnection() as HttpURLConnection
         connessione.connectTimeout = 10_000

@@ -320,6 +320,7 @@ private fun SelettoreOrarioAncora(
             daStazione = tratta.luogoPartenza,
             aStazione = tratta.luogoArrivo,
             data = data,
+            oraRiferimento = inizio.minusHours(2),
             onScelto = { corsa -> onCambia(corsa.partenza, corsa.arrivo); mostraDialogSbb = false },
             onDismiss = { mostraDialogSbb = false }
         )
@@ -334,6 +335,7 @@ private fun DialogScaricaOrarioSbbSingolo(
     daStazione: String,
     aStazione: String,
     data: LocalDate,
+    oraRiferimento: LocalTime,
     onScelto: (CorsaScaricata) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -351,6 +353,8 @@ private fun DialogScaricaOrarioSbbSingolo(
                     daStazione = daStazione,
                     aStazione = aStazione,
                     data = data,
+                    oraRiferimento = oraRiferimento,
+                    limite = 16,
                     chiaveRicerca = Unit,
                     testoAzione = { "Usa" },
                     azioneAbilitata = { true },
@@ -522,7 +526,13 @@ private fun CardEvento(
                         scope.launch {
                             try {
                                 val corse = withContext(Dispatchers.IO) {
-                                    client.cercaCorse(evento.tratta.luogoPartenza, evento.tratta.luogoArrivo, data)
+                                    client.cercaCorse(
+                                        daStazione = evento.tratta.luogoPartenza,
+                                        aStazione = evento.tratta.luogoArrivo,
+                                        data = data,
+                                        oraRiferimento = evento.inizioReale.minusHours(3),
+                                        limite = 16
+                                    )
                                 }
                                 if (corse.isEmpty()) {
                                     erroreSbb = "Nessuna corsa trovata per questa data."

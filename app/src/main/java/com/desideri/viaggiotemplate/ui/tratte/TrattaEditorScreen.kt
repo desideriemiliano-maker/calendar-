@@ -414,6 +414,7 @@ private fun DialogScaricaOrariSbb(
     onDismiss: () -> Unit
 ) {
     var data by remember { mutableStateOf(LocalDate.now()) }
+    var oraRiferimento by remember { mutableStateOf(LocalTime.of(6, 0)) }
     var chiaveRicerca by remember { mutableStateOf(0) }
     var aggiunte by remember { mutableStateOf(setOf<CorsaScaricata>()) }
 
@@ -429,6 +430,14 @@ private fun DialogScaricaOrariSbb(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CampoData(valore = data, onValoreCambiato = { data = it }, modifier = Modifier.weight(1f))
+                    CampoOrario(
+                        etichetta = "A partire dalle",
+                        valore = oraRiferimento,
+                        onValoreCambiato = { oraRiferimento = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Button(onClick = { chiaveRicerca++ }) { Text("Cerca") }
                 }
 
@@ -436,6 +445,8 @@ private fun DialogScaricaOrariSbb(
                     daStazione = daStazione,
                     aStazione = aStazione,
                     data = data,
+                    oraRiferimento = oraRiferimento,
+                    limite = 16,
                     chiaveRicerca = chiaveRicerca,
                     testoAzione = { corsa -> if (corsa in aggiunte) "Aggiunta" else "+ Aggiungi" },
                     azioneAbilitata = { corsa -> corsa !in aggiunte },

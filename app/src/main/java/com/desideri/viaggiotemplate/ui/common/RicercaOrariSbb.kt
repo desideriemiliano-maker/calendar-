@@ -24,6 +24,7 @@ import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.time.LocalTime
 
 /**
  * Corpo condiviso dei dialog "scarica orari da SBB": lancia la ricerca (subito se [avviaSubito],
@@ -36,6 +37,8 @@ fun RicercaOrariSbb(
     daStazione: String,
     aStazione: String,
     data: LocalDate,
+    oraRiferimento: LocalTime = LocalTime.MIDNIGHT,
+    limite: Int = 16,
     chiaveRicerca: Any?,
     testoAzione: (CorsaScaricata) -> String,
     azioneAbilitata: (CorsaScaricata) -> Boolean,
@@ -46,11 +49,13 @@ fun RicercaOrariSbb(
     var errore by remember { mutableStateOf<String?>(null) }
     var risultati by remember { mutableStateOf<List<CorsaScaricata>>(emptyList()) }
 
-    LaunchedEffect(daStazione, aStazione, data, chiaveRicerca) {
+    LaunchedEffect(daStazione, aStazione, data, oraRiferimento, chiaveRicerca) {
         inCorso = true
         errore = null
         try {
-            val corse = withContext(Dispatchers.IO) { client.cercaCorse(daStazione, aStazione, data) }
+            val corse = withContext(Dispatchers.IO) {
+                client.cercaCorse(daStazione, aStazione, data, oraRiferimento, limite)
+            }
             risultati = corse
             if (corse.isEmpty()) errore = "Nessuna corsa trovata per questa data."
         } catch (e: Exception) {
