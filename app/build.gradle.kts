@@ -1,8 +1,68 @@
+import java.io.ByteArrayOutputStream
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+}
+
+/** Esegue git nella root del progetto; stringa vuota se git non è disponibile o non è un repository. */
+fun runGit(vararg args: String): String = try {
+    val out = ByteArrayOutputStream()
+    project.exec {
+        workingDir = rootProject.projectDir
+        commandLine(listOf("git") + args.toList())
+        standardOutput = out
+        isIgnoreExitValue = true
+    }
+    out.toString(Charsets.UTF_8.name()).trim()
+} catch (e: Exception) {
+    ""
+}
+
+val gitCommitCount: Int = runGit("rev-list", "--count", "HEAD").toIntOrNull()?.coerceAtLeast(1) ?: 1
+
+fun escapeKotlin(testo: String): String = testo.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")
+
+/**
+ * Genera il sorgente Kotlin `Changelog.kt` con una voce per ogni commit git (versionCode = posizione
+ * nella storia, coerente con `gitCommitCount`/`versionCode` dell'app), da mostrare nel menu
+ * "Versioni" di Impostazioni. Se non c'è storia git (repo appena creato, nessun commit), la lista
+ * risulta vuota: la UI lo gestisce senza errori.
+ */
+fun generaSorgenteChangelog(): String {
+    val log = runGit("log", "--reverse", "--date=short", "--pretty=format:%ad@@@%s")
+    val voci = StringBuilder()
+    if (log.isNotBlank()) {
+        log.lines().forEachIndexed { indice, riga ->
+            val parti = riga.split("@@@", limit = 2)
+            if (parti.size == 2) {
+                voci.append("    VoceChangelog(versionCode = ${indice + 1}, data = \"${parti[0]}\", messaggio = \"${escapeKotlin(parti[1])}\"),\n")
+            }
+        }
+    }
+    return """
+        |package com.desideri.viaggiotemplate.changelog
+        |
+        |data class VoceChangelog(val versionCode: Int, val data: String, val messaggio: String)
+        |
+        |val CHANGELOG: List<VoceChangelog> = listOf(
+        |$voci)
+        |
+    """.trimMargin()
+}
+
+val changelogGeneratoDir = layout.buildDirectory.dir("generated/changelog")
+
+val generaChangelog = tasks.register("generaChangelog") {
+    val outputDir = changelogGeneratoDir
+    outputs.dir(outputDir)
+    doLast {
+        val pacchettoDir = File(outputDir.get().asFile, "com/desideri/viaggiotemplate/changelog")
+        pacchettoDir.mkdirs()
+        File(pacchettoDir, "Changelog.kt").writeText(generaSorgenteChangelog())
+    }
 }
 
 android {
@@ -13,8 +73,8 @@ android {
         applicationId = "com.desideri.viaggiotemplate"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = gitCommitCount
+        versionName = "1.0.$gitCommitCount"
     }
 
     buildTypes {
@@ -35,6 +95,16 @@ android {
     buildFeatures {
         compose = true
     }
+
+    sourceSets {
+        getByName("main") {
+            java.srcDir(changelogGeneratoDir)
+        }
+    }
+}
+
+tasks.matching { it.name.contains("Kotlin") }.configureEach {
+    dependsOn(generaChangelog)
 }
 
 dependencies {
