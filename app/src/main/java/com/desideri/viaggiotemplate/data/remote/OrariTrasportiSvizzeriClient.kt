@@ -21,25 +21,23 @@ data class CorsaScaricata(
  * SBB. Non e' un servizio ufficiale SBB, ma e' quello comunemente usato per questo tipo di
  * integrazione in assenza di credenziali per l'API ufficiale (che richiede registrazione).
  */
-class OrariTrasportiSvizzeriClient {
+class OrariTrasportiSvizzeriClient : ClientOrariTreno {
 
     private val formatoData = DateTimeFormatter.ofPattern("dd-MM-yyyy")
     private val formatoOra = DateTimeFormatter.ofPattern("HH:mm")
 
     /**
-     * @param oraRiferimento le corse restituite partono da qui in poi (in ordine cronologico).
-     *   Se omesso l'API di transport.opendata.ch NON usa la mezzanotte della data richiesta come
-     *   si potrebbe pensare, ma l'ora corrente del momento della richiesta: passarlo esplicitamente
-     *   e' necessario, altrimenti per una data futura o passata si ottengono corse fuori contesto
-     *   (tipicamente della primissima mattina del giorno dopo).
-     * @throws java.io.IOException se la richiesta di rete fallisce.
+     * Se [oraRiferimento] e' omesso, l'API di transport.opendata.ch NON usa la mezzanotte della
+     * data richiesta come si potrebbe pensare, ma l'ora corrente del momento della richiesta:
+     * passarlo esplicitamente e' necessario, altrimenti per una data futura o passata si ottengono
+     * corse fuori contesto (tipicamente della primissima mattina del giorno dopo).
      */
-    fun cercaCorse(
+    override fun cercaCorse(
         daStazione: String,
         aStazione: String,
         data: LocalDate,
-        oraRiferimento: LocalTime = LocalTime.MIDNIGHT,
-        limite: Int = 16
+        oraRiferimento: LocalTime,
+        limite: Int
     ): List<CorsaScaricata> {
         val url = "https://transport.opendata.ch/v1/connections" +
             "?from=${URLEncoder.encode(daStazione, "UTF-8")}" +

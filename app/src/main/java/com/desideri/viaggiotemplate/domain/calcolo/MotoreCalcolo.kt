@@ -18,6 +18,19 @@ data class SlotRisolto(
     val trattaCandidate: List<Tratta>
 )
 
+/**
+ * Esito del calcolo di inizio/fine per una singola tratta. `daConfermare` è true quando la tratta
+ * è TRENO/AEREO ma non ha ancora nessun orario configurato (né pattern ricorrenti né orari
+ * fissi): non essendoci alcun dato su cui basarsi, si usa il deadline stesso come placeholder
+ * (partenza = arrivo), da sostituire con un orario reale (es. download SBB/Trenitalia) prima di
+ * scrivere l'evento a calendario.
+ */
+private data class RisultatoOrario(
+    val inizio: LocalTime,
+    val fine: LocalTime,
+    val daConfermare: Boolean = false
+)
+
 class MotoreCalcolo {
 
     /**
@@ -40,6 +53,7 @@ class MotoreCalcolo {
 
         val inizio = arrayOfNulls<LocalTime>(slotsRisolti.size)
         val fine = arrayOfNulls<LocalTime>(slotsRisolti.size)
+        val daConfermare = BooleanArray(slotsRisolti.size)
 
         ancore.forEach { (indice, orari) ->
             inizio[indice] = orari.first
@@ -54,9 +68,10 @@ class MotoreCalcolo {
             val trattaSuccessiva = slotsRisolti[i + 1].trattaSelezionata
             val deadline = inizio[i + 1]!!.minusMinutes(trattaSuccessiva.margineMinuti.toLong())
             val tratta = slotsRisolti[i].trattaSelezionata
-            val (ini, fin) = calcolaIndietro(tratta, deadline)
-            inizio[i] = ini
-            fine[i] = fin
+            val risultato = calcolaIndietro(tratta, deadline)
+            inizio[i] = risultato.inizio
+            fine[i] = risultato.fine
+            daConfermare[i] = risultato.daConfermare
         }
 
         // Propagazione in avanti: da ciascuna ancora fino alla prossima (esclusa) o alla fine
@@ -65,9 +80,10 @@ class MotoreCalcolo {
             for (i in ancoraIndex + 1 until limite) {
                 val tratta = slotsRisolti[i].trattaSelezionata
                 val deadline = fine[i - 1]!!.plusMinutes(tratta.margineMinuti.toLong())
-                val (ini, fin) = calcolaAvanti(tratta, deadline)
-                inizio[i] = ini
-                fine[i] = fin
+                val risultato = calcolaAvanti(tratta, deadline)
+                inizio[i] = risultato.inizio
+                fine[i] = risultato.fine
+                daConfermare[i] = risultato.daConfermare
             }
         }
 
@@ -80,16 +96,29 @@ class MotoreCalcolo {
                 slotRisolto.trattaCandidate
                     .filter { it.id != slotRisolto.trattaSelezionata.id }
                     .mapNotNull { candidata ->
-                        calcolaAlternativa(
-                            candidata = candidata,
-                            èPrimaDellAncora = i < primaAncora,
-                            èDopoDellAncora = i > primaAncora && i !in ancore.keys,
-                            inizioProprio = ini,
-                            fineProprio = fin,
-                            inizioAdiacentePrecedente = if (i > 0) fine[i - 1] else null,
-                            inizioAdiacenteSuccessivo = if (i < slotsRisolti.size - 1) inizio[i + 1] else null,
-                            margineSuccessivo = if (i < slotsRisolti.size - 1) slotsRisolti[i + 1].trattaSelezionata.margineMinuti else 0
-                        )
+                        // runCatching: un candidato TRENO/AEREO senza alcuno slot compatibile (es.
+                        // nessun orario configurato ancora, in attesa di un download orari reali)
+                        // lancia un'eccezione — non deve far fallire il calcolo dell'intero evento,
+                        // altrimenti un solo candidato "rotto" toglierebbe TUTTE le alternative
+                        // (incluse quelle valide) e i risultati resterebbero bloccati sul vecchio
+                        // stato, impedendo di tornare indietro sulla scelta.
+                        runCatching {
+                            calcolaAlternativa(
+                                candidata = candidata,
+                                // Nota: non si esclude i qui neanche se e' diventato un'ancora
+                                // manuale (es. dopo "Modifica manualmente" o un download di orario
+                                // reale): quel che conta per la posizione delle alternative e' solo
+                                // se i precede o segue la PRIMA ancora del template, non se il suo
+                                // stesso valore e' stato corretto a mano.
+                                èPrimaDellAncora = i < primaAncora,
+                                èDopoDellAncora = i > primaAncora,
+                                inizioProprio = ini,
+                                fineProprio = fin,
+                                inizioAdiacentePrecedente = if (i > 0) fine[i - 1] else null,
+                                inizioAdiacenteSuccessivo = if (i < slotsRisolti.size - 1) inizio[i + 1] else null,
+                                margineSuccessivo = if (i < slotsRisolti.size - 1) slotsRisolti[i + 1].trattaSelezionata.margineMinuti else 0
+                            )
+                        }.getOrNull()
                     }
             } else emptyList()
 
@@ -100,36 +129,46 @@ class MotoreCalcolo {
                 fineReale = fin,
                 inizioBlocco = blocIni,
                 fineBlocco = blocFin,
-                alternative = alternative
+                alternative = alternative,
+                orarioDaConfermare = daConfermare[i]
             )
         }
     }
 
     /** Calcola inizio/fine di una tratta andando all'indietro da un deadline di arrivo massimo. */
-    private fun calcolaIndietro(tratta: Tratta, deadlineArrivoMassimo: LocalTime): Pair<LocalTime, LocalTime> {
-        return if (tratta.tipo.usaOrariProgrammati) {
+    private fun calcolaIndietro(tratta: Tratta, deadlineArrivoMassimo: LocalTime): RisultatoOrario {
+        if (tratta.tipo.usaOrariProgrammati) {
+            if (tratta.opzioniOrario.isEmpty() && tratta.orariFissi.isEmpty()) return placeholderSenzaOrario(tratta, deadlineArrivoMassimo)
             val opzione = trovaUltimoSlotConArrivoEntro(tratta, deadlineArrivoMassimo)
                 ?: error("Nessuno slot disponibile per ${tratta.nome} entro $deadlineArrivoMassimo")
-            opzione
-        } else {
-            val fine = deadlineArrivoMassimo
-            val ini = fine.minusMinutes(tratta.durataMinutiReale.toLong())
-            ini to fine
+            return RisultatoOrario(opzione.first, opzione.second)
         }
+        val fine = deadlineArrivoMassimo
+        val ini = fine.minusMinutes(tratta.durataMinutiReale.toLong())
+        return RisultatoOrario(ini, fine)
     }
 
     /** Calcola inizio/fine di una tratta andando in avanti da un deadline di partenza minimo. */
-    private fun calcolaAvanti(tratta: Tratta, deadlinePartenzaMinima: LocalTime): Pair<LocalTime, LocalTime> {
-        return if (tratta.tipo.usaOrariProgrammati) {
+    private fun calcolaAvanti(tratta: Tratta, deadlinePartenzaMinima: LocalTime): RisultatoOrario {
+        if (tratta.tipo.usaOrariProgrammati) {
+            if (tratta.opzioniOrario.isEmpty() && tratta.orariFissi.isEmpty()) return placeholderSenzaOrario(tratta, deadlinePartenzaMinima)
             val opzione = trovaPrimoSlotConPartenzaDa(tratta, deadlinePartenzaMinima)
                 ?: error("Nessuno slot disponibile per ${tratta.nome} da $deadlinePartenzaMinima")
-            opzione
-        } else {
-            val ini = deadlinePartenzaMinima
-            val fine = ini.plusMinutes(tratta.durataMinutiReale.toLong())
-            ini to fine
+            return RisultatoOrario(opzione.first, opzione.second)
         }
+        val ini = deadlinePartenzaMinima
+        val fine = ini.plusMinutes(tratta.durataMinutiReale.toLong())
+        return RisultatoOrario(ini, fine)
     }
+
+    /**
+     * Tratta TRENO/AEREO senza alcun orario configurato (né pattern ricorrenti né orari fissi):
+     * non c'è alcun dato su cui basare un calcolo reale, quindi si lascia partenza = arrivo =
+     * deadline come placeholder, segnalato come "da confermare" (vedi [RisultatoOrario]) invece
+     * di far fallire l'intero calcolo del template.
+     */
+    private fun placeholderSenzaOrario(tratta: Tratta, deadline: LocalTime): RisultatoOrario =
+        RisultatoOrario(deadline, deadline, daConfermare = true)
 
     private fun calcolaAlternativa(
         candidata: Tratta,
@@ -141,7 +180,7 @@ class MotoreCalcolo {
         inizioAdiacenteSuccessivo: LocalTime?,
         margineSuccessivo: Int
     ): EventoCalcolato? {
-        val (ini, fin) = when {
+        val risultato = when {
             èDopoDellAncora && inizioAdiacentePrecedente != null -> {
                 val deadline = inizioAdiacentePrecedente.plusMinutes(candidata.margineMinuti.toLong())
                 calcolaAvanti(candidata, deadline)
@@ -152,14 +191,15 @@ class MotoreCalcolo {
             }
             else -> return null
         }
-        val (blocIni, blocFin) = applicaArrotondamento(candidata, ini, fin)
+        val (blocIni, blocFin) = applicaArrotondamento(candidata, risultato.inizio, risultato.fine)
         return EventoCalcolato(
             templateSlotId = "",
             tratta = candidata,
-            inizioReale = ini,
-            fineReale = fin,
+            inizioReale = risultato.inizio,
+            fineReale = risultato.fine,
             inizioBlocco = blocIni,
-            fineBlocco = blocFin
+            fineBlocco = blocFin,
+            orarioDaConfermare = risultato.daConfermare
         )
     }
 

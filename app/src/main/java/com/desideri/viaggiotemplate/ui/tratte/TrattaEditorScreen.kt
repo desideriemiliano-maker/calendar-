@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
+import com.desideri.viaggiotemplate.data.remote.clientOrariPer
 import com.desideri.viaggiotemplate.domain.model.Arrotondamento
 import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
@@ -41,7 +42,8 @@ import com.desideri.viaggiotemplate.domain.model.Vettore
 import com.desideri.viaggiotemplate.ui.common.CampoData
 import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.CampoOrarioOpzionale
-import com.desideri.viaggiotemplate.ui.common.RicercaOrariSbb
+import com.desideri.viaggiotemplate.ui.common.RicercaOrariTreno
+import com.desideri.viaggiotemplate.ui.common.descrizioneFonteOrari
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
 import com.desideri.viaggiotemplate.ui.common.SelettoreNotifica
 import java.time.LocalDate
@@ -200,15 +202,17 @@ fun TrattaEditorScreen(
                     )
                 }) { Text("+ Aggiungi orario fisso") }
             }
-            if (tipo == TipoTratta.TRENO && vettore == Vettore.SBB) {
+            val vettoreCorrente = vettore
+            if (tipo == TipoTratta.TRENO && vettoreCorrente != null && clientOrariPer(vettoreCorrente) != null) {
                 item {
-                    var mostraDialogSbb by remember { mutableStateOf(false) }
+                    var mostraDialogOrariReali by remember { mutableStateOf(false) }
                     TextButton(
-                        onClick = { mostraDialogSbb = true },
+                        onClick = { mostraDialogOrariReali = true },
                         enabled = luogoPartenza.isNotBlank() && luogoArrivo.isNotBlank()
-                    ) { Text("Scarica orari da SBB") }
-                    if (mostraDialogSbb) {
-                        DialogScaricaOrariSbb(
+                    ) { Text("Scarica orari da ${vettoreCorrente.name}") }
+                    if (mostraDialogOrariReali) {
+                        DialogScaricaOrariTreno(
+                            vettore = vettoreCorrente,
                             daStazione = luogoPartenza,
                             aStazione = luogoArrivo,
                             onAggiungi = { corsa ->
@@ -222,7 +226,7 @@ fun TrattaEditorScreen(
                                     )
                                 }
                             },
-                            onDismiss = { mostraDialogSbb = false }
+                            onDismiss = { mostraDialogOrariReali = false }
                         )
                     }
                 }
@@ -409,11 +413,12 @@ private fun EditorOrarioFisso(
 }
 
 /**
- * Cerca le corse tra due stazioni su transport.opendata.ch (API pubblica dei trasporti svizzeri,
- * include SBB) per un giorno scelto, e permette di aggiungerle come Orari fissi con un tocco.
+ * Cerca le corse tra due stazioni per un giorno scelto sulla fonte non ufficiale associata a
+ * [vettore] (vedi [descrizioneFonteOrari]), e permette di aggiungerle come Orari fissi con un tocco.
  */
 @Composable
-private fun DialogScaricaOrariSbb(
+private fun DialogScaricaOrariTreno(
+    vettore: Vettore,
     daStazione: String,
     aStazione: String,
     onAggiungi: (CorsaScaricata) -> Unit,
@@ -427,9 +432,9 @@ private fun DialogScaricaOrariSbb(
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
             Column(modifier = Modifier.padding(24.dp).heightIn(max = 520.dp)) {
-                Text("Scarica orari da SBB", style = MaterialTheme.typography.titleMedium)
+                Text("Scarica orari da ${vettore.name}", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "$daStazione → $aStazione, dati da transport.opendata.ch (trasporti pubblici svizzeri).",
+                    "$daStazione → $aStazione, ${descrizioneFonteOrari(vettore)}.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
                 )
@@ -447,7 +452,8 @@ private fun DialogScaricaOrariSbb(
                     Button(onClick = { chiaveRicerca++ }) { Text("Cerca") }
                 }
 
-                RicercaOrariSbb(
+                RicercaOrariTreno(
+                    vettore = vettore,
                     daStazione = daStazione,
                     aStazione = aStazione,
                     data = data,

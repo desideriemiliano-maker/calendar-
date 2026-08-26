@@ -7,6 +7,7 @@ import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -184,6 +185,98 @@ class MotoreCalcoloTest {
     }
 
     @Test
+    fun `alternative restano disponibili dopo aver cambiato la tratta selezionata`() {
+        val ancora = trattaAuto("milano-roma", durata = 0, margine = 0)
+        val pomezia = trattaAuto("pomezia", durata = 30, margine = 5)
+        val albano = trattaAuto("albano", durata = 45, margine = 10)
+        val pavona = trattaAuto("pavona", durata = 20, margine = 5)
+
+        val slotAncora = slot("s0", 0, ancora = true, selezionataId = ancora.id)
+        val slotDestinazioneAlbano = slot(
+            "s1", 1, ancora = false,
+            selezionataId = albano.id,
+            candidatiIds = listOf(pomezia.id, albano.id, pavona.id)
+        )
+
+        val risolti = listOf(
+            SlotRisolto(slotAncora, ancora, listOf(ancora)),
+            SlotRisolto(slotDestinazioneAlbano, albano, listOf(pomezia, albano, pavona))
+        )
+
+        val eventi = motore.calcola(risolti, ancora(0, LocalTime.of(8, 0), LocalTime.of(10, 0)))
+        val destinazione = eventi[1]
+
+        assertEquals(2, destinazione.alternative.size)
+        assertTrue(destinazione.alternative.any { it.tratta.id == "pomezia" })
+        assertTrue(destinazione.alternative.any { it.tratta.id == "pavona" })
+    }
+
+    @Test
+    fun `un candidato TRENO senza orari configurati resta comunque un'alternativa selezionabile, come placeholder da confermare`() {
+        // Pavona non ha ancora nessun orario configurato (es. tratta TRENO in attesa di un
+        // download di orari reali): non deve far sparire le altre alternative valide (Albano),
+        // e deve comunque comparire lei stessa come alternativa (placeholder orarioDaConfermare),
+        // cosi' l'utente puo' comunque sceglierla e poi aggiornarne l'orario reale.
+        val ancora = trattaAuto("milano-roma", durata = 0, margine = 0)
+        val pomezia = trattaAuto("pomezia", durata = 30, margine = 5)
+        val albano = trattaAuto("albano", durata = 45, margine = 10)
+        val pavonaSenzaOrari = trattaTreno("pavona", margine = 5, opzioni = emptyList())
+
+        val slotAncora = slot("s0", 0, ancora = true, selezionataId = ancora.id)
+        val slotDestinazione = slot(
+            "s1", 1, ancora = false,
+            selezionataId = pomezia.id,
+            candidatiIds = listOf(pomezia.id, albano.id, pavonaSenzaOrari.id)
+        )
+
+        val risolti = listOf(
+            SlotRisolto(slotAncora, ancora, listOf(ancora)),
+            SlotRisolto(slotDestinazione, pomezia, listOf(pomezia, albano, pavonaSenzaOrari))
+        )
+
+        val eventi = motore.calcola(risolti, ancora(0, LocalTime.of(8, 0), LocalTime.of(10, 0)))
+        val destinazione = eventi[1]
+
+        assertEquals(2, destinazione.alternative.size)
+        assertTrue(destinazione.alternative.any { it.tratta.id == "albano" && !it.orarioDaConfermare })
+        val altPavona = destinazione.alternative.single { it.tratta.id == "pavona" }
+        assertTrue(altPavona.orarioDaConfermare)
+        assertEquals(altPavona.inizioReale, altPavona.fineReale)
+    }
+
+    @Test
+    fun `una tratta con alternative resta scambiabile anche se e' diventata un'ancora manuale`() {
+        // Scenario: dopo l'ancora del template c'e' uno slot con alternative (es. destinazione),
+        // e l'utente ha corretto a mano il suo orario (es. "Modifica manualmente" o un download
+        // di orario reale), rendendolo un'ancora manuale. Le alternative per quello slot devono
+        // restare disponibili: correggere l'orario non deve bloccare la scelta della tratta.
+        val ancoraTemplate = trattaAuto("ancoraTemplate", durata = 0, margine = 0)
+        val pomezia = trattaAuto("pomezia", durata = 30, margine = 5)
+        val albano = trattaAuto("albano", durata = 45, margine = 10)
+
+        val slotAncora = slot("s0", 0, ancora = true, selezionataId = ancoraTemplate.id)
+        val slotDestinazione = slot(
+            "s1", 1, ancora = false,
+            selezionataId = pomezia.id,
+            candidatiIds = listOf(pomezia.id, albano.id)
+        )
+
+        val risolti = listOf(
+            SlotRisolto(slotAncora, ancoraTemplate, listOf(ancoraTemplate)),
+            SlotRisolto(slotDestinazione, pomezia, listOf(pomezia, albano))
+        )
+
+        val ancore = ancora(0, LocalTime.of(8, 0), LocalTime.of(10, 0)) +
+            ancora(1, LocalTime.of(10, 5), LocalTime.of(10, 35)) // s1 corretto a mano -> diventa ancora manuale
+
+        val eventi = motore.calcola(risolti, ancore)
+        val destinazione = eventi[1]
+
+        assertEquals(1, destinazione.alternative.size)
+        assertEquals("albano", destinazione.alternative.single().tratta.id)
+    }
+
+    @Test
     fun `alternative prima dell'ancora usano il margine della tratta successiva selezionata, non il proprio`() {
         val selezionata = trattaAuto("selezionata", durata = 15, margine = 5)
         val alternativa = trattaAuto("alternativa", durata = 25, margine = 10)
@@ -206,18 +299,72 @@ class MotoreCalcoloTest {
     }
 
     @Test
-    fun `lancia eccezione se non esiste uno slot TRENO compatibile con il deadline`() {
-        val trenoSenzaSlot = trattaTreno("treno", margine = 20, opzioni = emptyList())
+    fun `una tratta TRENO senza alcun orario configurato non fa fallire il calcolo, ma resta da confermare`() {
+        // Tipicamente una tratta SBB/Trenitalia appena creata, in attesa di un download orari
+        // reali: nessun pattern ricorrente, nessun orario fisso. Invece di far fallire tutto il
+        // calcolo, si lascia partenza = arrivo (placeholder) e si segnala orarioDaConfermare.
+        val trenoSenzaOrari = trattaTreno("treno", margine = 20, opzioni = emptyList())
         val ancora = trattaAuto("ancora", durata = 0, margine = 20)
 
         val risolti = listOf(
-            SlotRisolto(slot("s0", 0, ancora = false, selezionataId = trenoSenzaSlot.id), trenoSenzaSlot, listOf(trenoSenzaSlot)),
+            SlotRisolto(slot("s0", 0, ancora = false, selezionataId = trenoSenzaOrari.id), trenoSenzaOrari, listOf(trenoSenzaOrari)),
             SlotRisolto(slot("s1", 1, ancora = true, selezionataId = ancora.id), ancora, listOf(ancora))
         )
 
-        assertThrows(IllegalStateException::class.java) {
-            motore.calcola(risolti, ancora(1, LocalTime.of(10, 0), LocalTime.of(10, 20)))
-        }
+        // deadline arrivo = inizio ancora (10:00) - margine ancora (20) = 9:40
+        val eventi = motore.calcola(risolti, ancora(1, LocalTime.of(10, 0), LocalTime.of(10, 20)))
+
+        assertTrue(eventi[0].orarioDaConfermare)
+        assertEquals(LocalTime.of(9, 40), eventi[0].inizioReale)
+        assertEquals(LocalTime.of(9, 40), eventi[0].fineReale)
+        assertFalse(eventi[1].orarioDaConfermare) // l'ancora, fornita dall'utente, non è mai "da confermare"
+    }
+
+    @Test
+    fun `una tratta TRENO senza orari configurati resta da confermare anche propagando in avanti`() {
+        val ancora = trattaAuto("ancora", durata = 0, margine = 0)
+        val trenoSenzaOrari = trattaTreno("treno", margine = 10, opzioni = emptyList())
+
+        val risolti = listOf(
+            SlotRisolto(slot("s0", 0, ancora = true, selezionataId = ancora.id), ancora, listOf(ancora)),
+            SlotRisolto(slot("s1", 1, ancora = false, selezionataId = trenoSenzaOrari.id), trenoSenzaOrari, listOf(trenoSenzaOrari))
+        )
+
+        // deadline partenza = fine ancora (9:00) + margine treno (10) = 9:10
+        val eventi = motore.calcola(risolti, ancora(0, LocalTime.of(8, 30), LocalTime.of(9, 0)))
+
+        assertTrue(eventi[1].orarioDaConfermare)
+        assertEquals(LocalTime.of(9, 10), eventi[1].inizioReale)
+        assertEquals(LocalTime.of(9, 10), eventi[1].fineReale)
+    }
+
+    @Test
+    fun `un candidato TRENO senza orari configurati come alternativa e' comunque un placeholder da confermare, non un errore`() {
+        val ancora = trattaAuto("ancora", durata = 0, margine = 0)
+        val conOrari = trattaTreno(
+            "conOrari", margine = 0,
+            opzioni = listOf(OpzioneOrario(id = "o1", minutoPartenza = 43, offsetOreArrivo = 1, minutoArrivo = 29))
+        )
+        val senzaOrari = trattaTreno("senzaOrari", margine = 0, opzioni = emptyList())
+
+        val slotAncora = slot("s0", 0, ancora = true, selezionataId = ancora.id)
+        val slotDestinazione = slot(
+            "s1", 1, ancora = false,
+            selezionataId = conOrari.id,
+            candidatiIds = listOf(conOrari.id, senzaOrari.id)
+        )
+
+        val risolti = listOf(
+            SlotRisolto(slotAncora, ancora, listOf(ancora)),
+            SlotRisolto(slotDestinazione, conOrari, listOf(conOrari, senzaOrari))
+        )
+
+        val eventi = motore.calcola(risolti, ancora(0, LocalTime.of(8, 0), LocalTime.of(9, 0)))
+        val alt = eventi[1].alternative.single()
+
+        assertEquals("senzaOrari", alt.tratta.id)
+        assertTrue(alt.orarioDaConfermare)
+        assertEquals(alt.inizioReale, alt.fineReale)
     }
 
     @Test

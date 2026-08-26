@@ -19,6 +19,7 @@ import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
+import com.desideri.viaggiotemplate.domain.model.Vettore
 import com.desideri.viaggiotemplate.repository.TemplateRepository
 import com.desideri.viaggiotemplate.repository.TrattaRepository
 import com.desideri.viaggiotemplate.ui.AppContainer
@@ -59,6 +60,15 @@ data class StatoEsecuzione(
     val notificheSelezionate: Map<String, Notifica> = emptyMap(),
     val descrizioni: Map<String, String> = emptyMap(),
     val coloriSelezionati: Map<String, Int?> = emptyMap(),
+    /**
+     * Quando una Tratta TRENO ha vettore ALTRO, l'utente sceglie qui — solo per questa esecuzione,
+     * per singolo templateSlotId — quale vettore reale usare (Trenitalia/Italo/SBB): se risolve a
+     * un'integrazione con orari reali (Trenitalia/SBB) sblocca la ricerca; se Italo, resta il
+     * meccanismo ricorrente/fisso di sempre (nessuna integrazione disponibile).
+     */
+    val vettoriScelti: Map<String, Vettore> = emptyMap(),
+    /** Orario indicativo per la ricerca in tempo reale quando [vettoriScelti] risolve a Trenitalia/SBB per quello slot. */
+    val orariIndicativi: Map<String, LocalTime> = emptyMap(),
     /** Tutta la libreria Tratte, per poter aggiungere una tratta extra a questa sola esecuzione. */
     val libreriaTratte: List<Tratta> = emptyList(),
     val calendarioConfigurato: CalendarioDisponibile? = null,
@@ -115,6 +125,8 @@ class EsecuzioneViewModel(
                 notificheSelezionate = emptyMap(),
                 descrizioni = emptyMap(),
                 coloriSelezionati = emptyMap(),
+                vettoriScelti = emptyMap(),
+                orariIndicativi = emptyMap(),
                 orariAncoreInput = orariAncoreInput
             )
         }
@@ -140,6 +152,20 @@ class EsecuzioneViewModel(
     fun aggiornaOrarioAncora(templateSlotId: String, inizio: LocalTime, fine: LocalTime) {
         _stato.value = _stato.value.copy(
             orariAncoreInput = _stato.value.orariAncoreInput + (templateSlotId to (inizio to fine))
+        )
+    }
+
+    /** Sceglie, per questa sola esecuzione, il vettore reale di una Tratta TRENO con vettore ALTRO. */
+    fun sceglieVettorePerTrattaAltro(templateSlotId: String, vettore: Vettore) {
+        _stato.value = _stato.value.copy(
+            vettoriScelti = _stato.value.vettoriScelti + (templateSlotId to vettore)
+        )
+    }
+
+    /** Aggiorna l'orario indicativo usato per la ricerca in tempo reale su una Tratta ALTRO risolta a Trenitalia/SBB. */
+    fun aggiornaOrarioIndicativo(templateSlotId: String, orario: LocalTime) {
+        _stato.value = _stato.value.copy(
+            orariIndicativi = _stato.value.orariIndicativi + (templateSlotId to orario)
         )
     }
 
@@ -220,14 +246,25 @@ class EsecuzioneViewModel(
         eseguiCalcolo()
     }
 
-    /** Sostituisce la tratta selezionata per uno slot (scelta di un'alternativa) e ricalcola, mantenendo le eventuali ancore manuali. */
-    fun scegliAlternativa(templateSlotId: String, nuovaTrattaId: String) {
+    /**
+     * Sostituisce la tratta selezionata per uno slot (scelta di un'alternativa) e ricalcola.
+     * Se quello slot era diventato un'ancora manuale (orario corretto a mano, o scaricato da
+     * SBB/Trenitalia), l'ancora manuale era per la tratta PRECEDENTE: va aggiornata con l'orario
+     * della nuova tratta scelta (quello gia' mostrato nell'anteprima "Alternative"), altrimenti
+     * l'orario visualizzato resterebbe quello vecchio, fisso, ignorando la nuova selezione.
+     */
+    fun scegliAlternativa(templateSlotId: String, nuovaTrattaId: String, nuovoInizio: LocalTime, nuovaFine: LocalTime) {
         val s = _stato.value
         val template = s.templateSelezionato ?: return
         val nuoviSlot = template.slots.map {
             if (it.id == templateSlotId) it.copy(trattaSelezionataId = nuovaTrattaId) else it
         }
-        _stato.value = s.copy(templateSelezionato = template.copy(slots = nuoviSlot))
+        val ancoreManuali = if (templateSlotId in s.ancoreManuali) {
+            s.ancoreManuali + (templateSlotId to (nuovoInizio to nuovaFine))
+        } else {
+            s.ancoreManuali
+        }
+        _stato.value = s.copy(templateSelezionato = template.copy(slots = nuoviSlot), ancoreManuali = ancoreManuali)
         eseguiCalcolo()
     }
 
@@ -243,29 +280,40 @@ class EsecuzioneViewModel(
     }
 
     /**
-     * Inietta le corse scaricate (es. da SBB) come candidati aggiuntivi ("orari fissi" validi
-     * solo per questa esecuzione) sulla tratta indicata, e rilancia il calcolo: il motore sceglie
-     * automaticamente la corsa migliore con la stessa logica già usata per fissi/ricorrenti
-     * (margine rispetto alle tratte adiacenti), non un'aggiunta scelta a mano. Il risultato scelto
-     * diventa poi un'ancora manuale, cosi da restare fisso anche se altre correzioni successive
-     * ricalcolano le tratte vicine.
+     * Calcola, tra le corse scaricate (es. da SBB/Trenitalia), quale verrebbe scelta
+     * automaticamente dal motore se diventassero orari fissi della tratta — stessa logica di
+     * margine rispetto alle tratte adiacenti già usata per fissi/ricorrenti. Non modifica lo
+     * stato: serve solo a evidenziarla nel pannello di conferma prima che l'utente scelga.
      */
-    fun applicaCorseScaricate(templateSlotId: String, trattaId: String, corse: List<CorsaScaricata>) {
+    fun calcolaSceltaConsigliata(templateSlotId: String, trattaId: String, corse: List<CorsaScaricata>): CorsaScaricata? {
+        val s = _stato.value
+        val trattaEsistente = s.tratte[trattaId] ?: return null
+        val trattaArricchita = trattaEsistente.copy(orariFissi = trattaEsistente.orariFissi + corse.map { it.toOrarioFisso() })
+        val tratteSimulate = s.tratte + (trattaId to trattaArricchita)
+        val evento = calcolaEventiConTratte(tratteSimulate)?.firstOrNull { it.templateSlotId == templateSlotId } ?: return null
+        return corse.firstOrNull { it.partenza == evento.inizioReale && it.arrivo == evento.fineReale }
+    }
+
+    /**
+     * Applica la corsa scelta dall'utente nel pannello di conferma (di default quella suggerita
+     * da [calcolaSceltaConsigliata], ma può essere una qualunque tra quelle scaricate) come
+     * orario reale della tratta: diventa un'ancora manuale (vedi [sovrascriviEvento]). Tutte le
+     * corse scaricate restano comunque disponibili come orari fissi della tratta per eventuali
+     * ricalcoli successivi (es. dopo l'eliminazione di questa tratta come ancora).
+     */
+    fun confermaOrarioReale(templateSlotId: String, trattaId: String, corse: List<CorsaScaricata>, corsaScelta: CorsaScaricata) {
         val s = _stato.value
         val trattaEsistente = s.tratte[trattaId] ?: return
-        val orariScaricati = corse.map {
-            OrarioFisso(id = UUID.randomUUID().toString(), partenza = it.partenza, arrivo = it.arrivo, etichetta = it.etichetta.ifBlank { null })
-        }
-        val trattaArricchita = trattaEsistente.copy(orariFissi = trattaEsistente.orariFissi + orariScaricati)
+        val trattaArricchita = trattaEsistente.copy(orariFissi = trattaEsistente.orariFissi + corse.map { it.toOrarioFisso() })
         _stato.value = s.copy(tratte = s.tratte + (trattaId to trattaArricchita))
-        eseguiCalcolo()
-
-        val evento = _stato.value.eventiCalcolati.firstOrNull { it.templateSlotId == templateSlotId } ?: return
-        sovrascriviEvento(templateSlotId, evento.inizioReale, evento.fineReale)
+        sovrascriviEvento(templateSlotId, corsaScelta.partenza, corsaScelta.arrivo)
         _stato.value = _stato.value.copy(
-            messaggio = "Orario aggiornato con la corsa reale delle ${evento.inizioReale.toStringHHmm()}"
+            messaggio = "Orario aggiornato con la corsa reale delle ${corsaScelta.partenza.toStringHHmm()}"
         )
     }
+
+    private fun CorsaScaricata.toOrarioFisso() =
+        OrarioFisso(id = UUID.randomUUID().toString(), partenza = partenza, arrivo = arrivo, etichetta = etichetta.ifBlank { null })
 
     /**
      * Esclude una tratta da questo calcolo e lo rilancia subito: le tratte adiacenti a quella
@@ -279,6 +327,47 @@ class EsecuzioneViewModel(
             ancoreManuali = s.ancoreManuali - templateSlotId
         )
         eseguiCalcolo()
+    }
+
+    /**
+     * Calcola gli eventi usando una mappa di tratte alternativa a quella in [_stato] (es. una
+     * tratta arricchita con orari scaricati, per una simulazione), senza modificare lo stato.
+     * Restituisce null se il calcolo non è possibile (nessun template, nessuna ancora, tratte
+     * mancanti, errore del motore) — usato per anteprime, es. [calcolaSceltaConsigliata].
+     */
+    private fun calcolaEventiConTratte(tratte: Map<String, Tratta>): List<EventoCalcolato>? {
+        val s = _stato.value
+        val template = s.templateSelezionato ?: return null
+        val slotsOrdinati = template.slotsOrdinati.filterNot { it.id in s.slotEsclusi }
+        if (slotsOrdinati.isEmpty()) return null
+        val slotsAncora = slotsOrdinati.withIndex().filter { it.value.ancora }
+        if (slotsAncora.isEmpty()) return null
+
+        val slotsRisolti = slotsOrdinati.mapNotNull { slot ->
+            val selezionata = tratte[slot.trattaSelezionataId] ?: return@mapNotNull null
+            val candidate = slot.trattaCandidatiIds.mapNotNull { tratte[it] }
+            SlotRisolto(slot, selezionata, candidate)
+        }
+        if (slotsRisolti.size != slotsOrdinati.size) return null
+
+        val ancore = mutableMapOf<Int, Pair<LocalTime, LocalTime>>()
+        for ((indice, slot) in slotsAncora) {
+            val tratta = tratte[slot.trattaSelezionataId] ?: continue
+            val orari = tratta.orarioInizioDefault?.let { it to it.plusMinutes(tratta.durataMinutiReale.toLong()) }
+                ?: s.orariAncoreInput[slot.id]
+                ?: (LocalTime.of(9, 0) to LocalTime.of(9, 30))
+            ancore[indice] = orari
+        }
+        s.ancoreManuali.forEach { (slotId, orari) ->
+            val indice = slotsOrdinati.indexOfFirst { it.id == slotId }
+            if (indice >= 0) ancore[indice] = orari
+        }
+
+        return try {
+            motore.calcola(slotsRisolti, ancore)
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun eseguiCalcolo() {

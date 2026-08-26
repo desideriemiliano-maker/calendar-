@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,7 +49,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
-import com.desideri.viaggiotemplate.data.remote.OrariTrasportiSvizzeriClient
+import com.desideri.viaggiotemplate.data.remote.clientOrariPer
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
 import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
 import com.desideri.viaggiotemplate.domain.model.Notifica
@@ -59,12 +61,14 @@ import com.desideri.viaggiotemplate.domain.model.Vettore
 import com.desideri.viaggiotemplate.ui.common.CampoData
 import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
-import com.desideri.viaggiotemplate.ui.common.RicercaOrariSbb
+import com.desideri.viaggiotemplate.ui.common.RicercaOrariTreno
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
 import com.desideri.viaggiotemplate.ui.common.SelettoreNotifica
+import com.desideri.viaggiotemplate.ui.common.descrizioneFonteOrari
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -134,8 +138,21 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                         )
                         val (inizioInput, fineInput) = stato.orariAncoreInput[slot.id]
                             ?: (LocalTime.of(9, 0) to LocalTime.of(9, 30))
-                        val puoScaricareSbb = trattaAncora?.tipo == TipoTratta.TRENO && trattaAncora.vettore == Vettore.SBB
-                        if (trattaAncora != null && (trattaAncora.orariFissi.isNotEmpty() || puoScaricareSbb)) {
+                        val puoScaricareOrarioReale = trattaAncora?.tipo == TipoTratta.TRENO &&
+                            trattaAncora.vettore?.let { clientOrariPer(it) != null } == true
+                        if (trattaAncora != null && trattaAncora.tipo == TipoTratta.TRENO && trattaAncora.vettore == Vettore.ALTRO) {
+                            SelettoreOrarioAncoraVettoreAltro(
+                                tratta = trattaAncora,
+                                data = stato.data,
+                                vettoreScelto = stato.vettoriScelti[slot.id],
+                                orarioIndicativo = stato.orariIndicativi[slot.id] ?: LocalTime.of(9, 0),
+                                inizio = inizioInput,
+                                fine = fineInput,
+                                onSceltaVettore = { viewModel.sceglieVettorePerTrattaAltro(slot.id, it) },
+                                onCambiaOrarioIndicativo = { viewModel.aggiornaOrarioIndicativo(slot.id, it) },
+                                onCambia = { i, f -> viewModel.aggiornaOrarioAncora(slot.id, i, f) }
+                            )
+                        } else if (trattaAncora != null && (trattaAncora.orariFissi.isNotEmpty() || puoScaricareOrarioReale)) {
                             SelettoreOrarioAncora(
                                 tratta = trattaAncora,
                                 data = stato.data,
@@ -176,7 +193,13 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                 }
             }
 
-            items(stato.eventiCalcolati, key = { it.templateSlotId }) { evento ->
+            itemsIndexed(stato.eventiCalcolati, key = { _, evento -> evento.templateSlotId }) { indice, evento ->
+                if (indice > 0) {
+                    RigaAttesa(
+                        fine = stato.eventiCalcolati[indice - 1].fineReale,
+                        inizio = evento.inizioReale
+                    )
+                }
                 val eAncora = stato.templateSelezionato?.slots?.firstOrNull { it.id == evento.templateSlotId }?.ancora == true
                 CardEvento(
                     evento = evento,
@@ -185,19 +208,24 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                     notifica = stato.notificheSelezionate[evento.templateSlotId] ?: Notifica.NESSUNA,
                     descrizione = stato.descrizioni[evento.templateSlotId] ?: "",
                     colore = stato.coloriSelezionati[evento.templateSlotId] ?: evento.tratta.colore,
-                    onScegliAlternativa = { nuovaTrattaId ->
-                        viewModel.scegliAlternativa(evento.templateSlotId, nuovaTrattaId)
+                    vettoreScelto = stato.vettoriScelti[evento.templateSlotId],
+                    onScegliAlternativa = { nuovaTrattaId, nuovoInizio, nuovaFine ->
+                        viewModel.scegliAlternativa(evento.templateSlotId, nuovaTrattaId, nuovoInizio, nuovaFine)
                     },
                     onModificaManuale = { inizio, fine ->
                         viewModel.sovrascriviEvento(evento.templateSlotId, inizio, fine)
                     },
                     onElimina = { viewModel.eliminaEvento(evento.templateSlotId) },
-                    onCorseScaricate = { corse ->
-                        viewModel.applicaCorseScaricate(evento.templateSlotId, evento.tratta.id, corse)
+                    suggerisciScelta = { corse ->
+                        viewModel.calcolaSceltaConsigliata(evento.templateSlotId, evento.tratta.id, corse)
+                    },
+                    onConfermaOrarioReale = { corse, scelta ->
+                        viewModel.confermaOrarioReale(evento.templateSlotId, evento.tratta.id, corse, scelta)
                     },
                     onCambiaNotifica = { viewModel.aggiornaNotifica(evento.templateSlotId, it) },
                     onCambiaDescrizione = { viewModel.aggiornaDescrizione(evento.templateSlotId, it) },
-                    onCambiaColore = { viewModel.aggiornaColoreEvento(evento.templateSlotId, it) }
+                    onCambiaColore = { viewModel.aggiornaColoreEvento(evento.templateSlotId, it) },
+                    onScegliVettoreAltro = { viewModel.sceglieVettorePerTrattaAltro(evento.templateSlotId, it) }
                 )
             }
 
@@ -218,6 +246,16 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                     item {
                         Text("Verrà scritto su: ${stato.calendarioConfigurato!!.nome} (${stato.calendarioConfigurato!!.account})")
                     }
+                    if (stato.eventiCalcolati.any { it.orarioDaConfermare }) {
+                        item {
+                            Text(
+                                "Una o più tratte non hanno ancora un orario reale confermato (vedi sopra): " +
+                                    "verrebbero scritte a calendario con partenza e arrivo uguali.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                     item {
                         Button(onClick = { viewModel.aggiungiAlCalendario(context) }) {
                             Text("Aggiungi al calendario")
@@ -230,6 +268,21 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                 item { Text(msg) }
             }
         }
+    }
+}
+
+/** Mostra il tempo di attesa tra l'arrivo di una tratta e la partenza della successiva. */
+@Composable
+private fun RigaAttesa(fine: LocalTime, inizio: LocalTime) {
+    var minuti = Duration.between(fine, inizio).toMinutes()
+    if (minuti < 0) minuti += 24 * 60
+    val testo = "Attesa: " + when {
+        minuti < 60 -> "${minuti}min"
+        minuti % 60 == 0L -> "${minuti / 60}h"
+        else -> "${minuti / 60}h ${minuti % 60}min"
+    }
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.Center) {
+        Text(testo, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -255,12 +308,13 @@ private fun RigaOrario(
     }
 }
 
-private enum class ModoOrarioAncora { RICORRENTE, FISSO, SBB }
+private enum class ModoOrarioAncora { RICORRENTE, FISSO, TEMPO_REALE }
 
 /**
- * Per una tratta-ancora TRENO con orari fissi configurati e/o vettore SBB: scelta tra l'orario
- * ricorrente inserito a mano, un orario fisso (dropdown, tra quelli definiti sulla Tratta) e —
- * se il vettore e' SBB — gli orari reali scaricati per la data del viaggio (gia' nota qui).
+ * Per una tratta-ancora TRENO con orari fissi configurati e/o un vettore con integrazione orari
+ * reali (vedi [clientOrariPer]): scelta tra l'orario ricorrente inserito a mano, un orario fisso
+ * (dropdown, tra quelli definiti sulla Tratta) e gli orari reali scaricati per la data del viaggio
+ * (gia' nota qui).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -272,9 +326,9 @@ private fun SelettoreOrarioAncora(
     onCambia: (LocalTime, LocalTime) -> Unit
 ) {
     val orariFissi = tratta.orariFissi
-    val puoScaricareSbb = tratta.tipo == TipoTratta.TRENO && tratta.vettore == Vettore.SBB
+    val vettoreConOrariReali = tratta.vettore?.takeIf { tratta.tipo == TipoTratta.TRENO && clientOrariPer(it) != null }
     var modo by remember { mutableStateOf(ModoOrarioAncora.RICORRENTE) }
-    var mostraDialogSbb by remember { mutableStateOf(false) }
+    var mostraDialogOrarioReale by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -287,9 +341,9 @@ private fun SelettoreOrarioAncora(
                     orariFissi.firstOrNull()?.let { onCambia(it.partenza, it.arrivo) }
                 }) { Text(if (modo == ModoOrarioAncora.FISSO) "● Fisso" else "Fisso") }
             }
-            if (puoScaricareSbb) {
-                TextButton(onClick = { modo = ModoOrarioAncora.SBB; mostraDialogSbb = true }) {
-                    Text(if (modo == ModoOrarioAncora.SBB) "● SBB" else "SBB")
+            if (vettoreConOrariReali != null) {
+                TextButton(onClick = { modo = ModoOrarioAncora.TEMPO_REALE; mostraDialogOrarioReale = true }) {
+                    Text(if (modo == ModoOrarioAncora.TEMPO_REALE) "● ${vettoreConOrariReali.name}" else vettoreConOrariReali.name)
                 }
             }
         }
@@ -317,30 +371,108 @@ private fun SelettoreOrarioAncora(
                     }
                 }
             }
-            ModoOrarioAncora.SBB -> {
+            ModoOrarioAncora.TEMPO_REALE -> {
                 Text("${inizio.toStringHHmm()} → ${fine.toStringHHmm()}", style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = { mostraDialogSbb = true }) { Text("Cerca su SBB per il ${data.format(FORMATO_DATA)}") }
+                TextButton(onClick = { mostraDialogOrarioReale = true }) {
+                    Text("Cerca su ${vettoreConOrariReali?.name} per il ${data.format(FORMATO_DATA)}")
+                }
             }
         }
     }
 
-    if (mostraDialogSbb) {
-        DialogScaricaOrarioSbbSingolo(
+    if (mostraDialogOrarioReale && vettoreConOrariReali != null) {
+        DialogScaricaOrarioTrenoSingolo(
+            vettore = vettoreConOrariReali,
             daStazione = tratta.luogoPartenza,
             aStazione = tratta.luogoArrivo,
             data = data,
             oraRiferimento = inizio.minusHours(2),
-            onScelto = { corsa -> onCambia(corsa.partenza, corsa.arrivo); mostraDialogSbb = false },
-            onDismiss = { mostraDialogSbb = false }
+            onScelto = { corsa -> onCambia(corsa.partenza, corsa.arrivo); mostraDialogOrarioReale = false },
+            onDismiss = { mostraDialogOrarioReale = false }
         )
+    }
+}
+
+/**
+ * Riga di scelta del vettore reale (Trenitalia/Italo/SBB) per una Tratta TRENO con vettore ALTRO:
+ * la Tratta di libreria resta generica, ma per una singola esecuzione l'utente puo' precisare
+ * quale operatore sta effettivamente prendendo, sbloccando (per Trenitalia/SBB) la ricerca in
+ * tempo reale — vedi [SelettoreOrarioAncoraVettoreAltro] e l'uso analogo in [CardEvento].
+ */
+@Composable
+private fun SelettoreVettorePerAltro(vettoreScelto: Vettore?, onScegli: (Vettore) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Che vettore è questo treno?", style = MaterialTheme.typography.labelLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(Vettore.TRENITALIA, Vettore.ITALO, Vettore.SBB).forEach { v ->
+                TextButton(onClick = { onScegli(v) }) {
+                    Text(if (vettoreScelto == v) "● ${v.name}" else v.name)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Variante di [SelettoreOrarioAncora] per una tratta-ancora TRENO con vettore ALTRO: prima si
+ * sceglie il vettore reale per questa esecuzione (vedi [SelettoreVettorePerAltro]). Se risolve a
+ * un'integrazione con orari reali (Trenitalia/SBB), si richiede solo un orario indicativo — non
+ * la coppia partenza/arrivo — e la ricerca parte da 2h prima di quell'orario; l'orario reale del
+ * treno scelto dall'utente diventa poi l'orario dell'ancora. Se Italo (o nessuna scelta ancora
+ * fatta), resta il meccanismo ricorrente/fisso di sempre, delegato a [SelettoreOrarioAncora].
+ */
+@Composable
+private fun SelettoreOrarioAncoraVettoreAltro(
+    tratta: Tratta,
+    data: LocalDate,
+    vettoreScelto: Vettore?,
+    orarioIndicativo: LocalTime,
+    inizio: LocalTime,
+    fine: LocalTime,
+    onSceltaVettore: (Vettore) -> Unit,
+    onCambiaOrarioIndicativo: (LocalTime) -> Unit,
+    onCambia: (LocalTime, LocalTime) -> Unit
+) {
+    var mostraDialogOrarioReale by remember { mutableStateOf(false) }
+    val vettoreConRicerca = vettoreScelto?.takeIf { clientOrariPer(it) != null }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SelettoreVettorePerAltro(vettoreScelto = vettoreScelto, onScegli = onSceltaVettore)
+
+        if (vettoreConRicerca != null) {
+            CampoOrario(
+                etichetta = "Orario indicativo (HH:mm)",
+                valore = orarioIndicativo,
+                onValoreCambiato = onCambiaOrarioIndicativo,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text("${inizio.toStringHHmm()} → ${fine.toStringHHmm()}", style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = { mostraDialogOrarioReale = true }) {
+                Text("Cerca su ${vettoreConRicerca.name} per il ${data.format(FORMATO_DATA)}")
+            }
+            if (mostraDialogOrarioReale) {
+                DialogScaricaOrarioTrenoSingolo(
+                    vettore = vettoreConRicerca,
+                    daStazione = tratta.luogoPartenza,
+                    aStazione = tratta.luogoArrivo,
+                    data = data,
+                    oraRiferimento = orarioIndicativo.minusHours(2),
+                    onScelto = { corsa -> onCambia(corsa.partenza, corsa.arrivo); mostraDialogOrarioReale = false },
+                    onDismiss = { mostraDialogOrarioReale = false }
+                )
+            }
+        } else {
+            SelettoreOrarioAncora(tratta = tratta, data = data, inizio = inizio, fine = fine, onCambia = onCambia)
+        }
     }
 }
 
 private val FORMATO_DATA: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
-/** Cerca gli orari reali su SBB per una data gia' nota (quella del viaggio) e ne fa scegliere uno. */
+/** Cerca gli orari reali per una data gia' nota (quella del viaggio) e ne fa scegliere uno. */
 @Composable
-private fun DialogScaricaOrarioSbbSingolo(
+private fun DialogScaricaOrarioTrenoSingolo(
+    vettore: Vettore,
     daStazione: String,
     aStazione: String,
     data: LocalDate,
@@ -351,21 +483,22 @@ private fun DialogScaricaOrarioSbbSingolo(
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
             Column(modifier = Modifier.padding(24.dp).heightIn(max = 520.dp)) {
-                Text("Orari SBB per il ${data.format(FORMATO_DATA)}", style = MaterialTheme.typography.titleMedium)
+                Text("Orari ${vettore.name} per il ${data.format(FORMATO_DATA)}", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "$daStazione → $aStazione, dati da transport.opendata.ch (trasporti pubblici svizzeri).",
+                    "$daStazione → $aStazione, ${descrizioneFonteOrari(vettore)}.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
                 )
 
-                RicercaOrariSbb(
+                RicercaOrariTreno(
+                    vettore = vettore,
                     daStazione = daStazione,
                     aStazione = aStazione,
                     data = data,
                     oraRiferimento = oraRiferimento,
                     limite = 16,
                     chiaveRicerca = Unit,
-                    testoAzione = { "Usa" },
+                    testoAzione = { "" },
                     azioneAbilitata = { true },
                     onAzione = { corsa -> onScelto(corsa) }
                 )
@@ -474,23 +607,33 @@ private fun CardEvento(
     notifica: Notifica,
     descrizione: String,
     colore: Int?,
-    onScegliAlternativa: (String) -> Unit,
+    vettoreScelto: Vettore?,
+    onScegliAlternativa: (String, LocalTime, LocalTime) -> Unit,
     onModificaManuale: (LocalTime, LocalTime) -> Unit,
     onElimina: () -> Unit,
-    onCorseScaricate: (List<CorsaScaricata>) -> Unit,
+    suggerisciScelta: (List<CorsaScaricata>) -> CorsaScaricata?,
+    onConfermaOrarioReale: (corse: List<CorsaScaricata>, scelta: CorsaScaricata) -> Unit,
     onCambiaNotifica: (Notifica) -> Unit,
     onCambiaDescrizione: (String) -> Unit,
-    onCambiaColore: (Int?) -> Unit
+    onCambiaColore: (Int?) -> Unit,
+    onScegliVettoreAltro: (Vettore) -> Unit
 ) {
     var modificaManuale by remember { mutableStateOf(false) }
     var confermaEliminazione by remember { mutableStateOf(false) }
-    var caricamentoSbb by remember { mutableStateOf(false) }
-    var erroreSbb by remember { mutableStateOf<String?>(null) }
+    var caricamentoOrarioReale by remember { mutableStateOf(false) }
+    var erroreOrarioReale by remember { mutableStateOf<String?>(null) }
+    var corseDaConfermare by remember { mutableStateOf<List<CorsaScaricata>?>(null) }
     // Per la tratta ancora l'orario non passa dalla scelta tra candidati (è l'input diretto del
-    // calcolo, gestito dal selettore Ricorrente/Fisso/SBB sopra): qui il pulsante non avrebbe
-    // alcun effetto, quindi va mostrato solo per le tratte calcolate, non per l'ancora.
-    val puoScaricareSbb = !eAncora && evento.tratta.tipo == TipoTratta.TRENO && evento.tratta.vettore == Vettore.SBB
-    val client = remember { OrariTrasportiSvizzeriClient() }
+    // calcolo, gestito dal selettore Ricorrente/Fisso/tempo reale sopra): qui il pulsante non
+    // avrebbe alcun effetto, quindi va mostrato solo per le tratte calcolate, non per l'ancora.
+    // Se il vettore della Tratta e' ALTRO, si usa il vettore scelto dall'utente per questa
+    // esecuzione (vedi SelettoreVettorePerAltro) al posto di quello (assente) della Tratta.
+    val vettoreTratta = evento.tratta.vettore
+    val vettoreEffettivo = if (vettoreTratta == Vettore.ALTRO) vettoreScelto else vettoreTratta
+    val vettoreConOrariReali = vettoreEffettivo?.takeIf {
+        !eAncora && evento.tratta.tipo == TipoTratta.TRENO && clientOrariPer(it) != null
+    }
+    val client = remember(vettoreConOrariReali) { vettoreConOrariReali?.let { clientOrariPer(it) } }
     val scope = rememberCoroutineScope()
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -509,6 +652,14 @@ private fun CardEvento(
                 "Blocco calendario: ${evento.inizioBlocco.toStringHHmm()} → ${evento.fineBlocco.toStringHHmm()}",
                 style = MaterialTheme.typography.bodySmall
             )
+            if (evento.orarioDaConfermare) {
+                Text(
+                    "Orario non ancora noto: questa tratta non ha nessun orario configurato. " +
+                        "Aggiorna con l'orario reale qui sotto prima di aggiungere al calendario.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
 
             SelettoreNotifica(valore = notifica, onCambia = onCambiaNotifica)
 
@@ -525,7 +676,7 @@ private fun CardEvento(
             if (evento.alternative.isNotEmpty()) {
                 Text("Alternative:", style = MaterialTheme.typography.labelMedium)
                 evento.alternative.forEach { alt ->
-                    TextButton(onClick = { onScegliAlternativa(alt.tratta.id) }) {
+                    TextButton(onClick = { onScegliAlternativa(alt.tratta.id, alt.inizioReale, alt.fineReale) }) {
                         Text("${alt.tratta.nome}: ${alt.inizioReale.toStringHHmm()} → ${alt.fineReale.toStringHHmm()}")
                     }
                 }
@@ -545,11 +696,14 @@ private fun CardEvento(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            if (puoScaricareSbb) {
+            if (!eAncora && evento.tratta.tipo == TipoTratta.TRENO && vettoreTratta == Vettore.ALTRO) {
+                SelettoreVettorePerAltro(vettoreScelto = vettoreScelto, onScegli = onScegliVettoreAltro)
+            }
+            if (vettoreConOrariReali != null && client != null) {
                 TextButton(
                     onClick = {
-                        erroreSbb = null
-                        caricamentoSbb = true
+                        erroreOrarioReale = null
+                        caricamentoOrarioReale = true
                         scope.launch {
                             try {
                                 val corse = withContext(Dispatchers.IO) {
@@ -562,24 +716,25 @@ private fun CardEvento(
                                     )
                                 }
                                 if (corse.isEmpty()) {
-                                    erroreSbb = "Nessuna corsa trovata per questa data."
+                                    erroreOrarioReale = "Nessuna corsa trovata per questa data."
                                 } else {
-                                    onCorseScaricate(corse)
+                                    corseDaConfermare = corse
                                 }
                             } catch (e: Exception) {
-                                erroreSbb = "Impossibile scaricare gli orari: ${e.message ?: "errore di rete"}"
+                                erroreOrarioReale = "Impossibile scaricare gli orari: ${e.message ?: "errore di rete"}"
                             } finally {
-                                caricamentoSbb = false
+                                caricamentoOrarioReale = false
                             }
                         }
                     },
-                    enabled = !caricamentoSbb
+                    enabled = !caricamentoOrarioReale
                 ) {
                     Text(
-                        if (caricamentoSbb) "Ricerca su SBB…" else "Aggiorna con orario reale SBB per il ${data.format(FORMATO_DATA)}"
+                        if (caricamentoOrarioReale) "Ricerca su ${vettoreConOrariReali.name}…"
+                        else "Aggiorna con orario reale ${vettoreConOrariReali.name} per il ${data.format(FORMATO_DATA)}"
                     )
                 }
-                erroreSbb?.let { msg -> Text(msg, style = MaterialTheme.typography.bodySmall) }
+                erroreOrarioReale?.let { msg -> Text(msg, style = MaterialTheme.typography.bodySmall) }
             }
         }
     }
@@ -590,5 +745,92 @@ private fun CardEvento(
             onConferma = { onElimina(); confermaEliminazione = false },
             onAnnulla = { confermaEliminazione = false }
         )
+    }
+
+    corseDaConfermare?.let { corse ->
+        val consigliata = remember(corse) { suggerisciScelta(corse) }
+        DialogConfermaOrarioReale(
+            vettoreNome = vettoreConOrariReali?.name ?: "",
+            corse = corse,
+            consigliata = consigliata,
+            onConferma = { scelta ->
+                onConfermaOrarioReale(corse, scelta)
+                corseDaConfermare = null
+            },
+            onDismiss = { corseDaConfermare = null }
+        )
+    }
+}
+
+/**
+ * Pannello di conferma mostrato dopo aver scaricato gli orari reali di una tratta (vedi
+ * [CardEvento]): elenca le corse trovate evidenziando quella che il motore userebbe
+ * automaticamente (vedi [EsecuzioneViewModel.calcolaSceltaConsigliata]), ma l'utente puo'
+ * confermarla o scegliere una qualunque altra corsa dell'elenco.
+ */
+@Composable
+private fun DialogConfermaOrarioReale(
+    vettoreNome: String,
+    corse: List<CorsaScaricata>,
+    consigliata: CorsaScaricata?,
+    onConferma: (CorsaScaricata) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(24.dp).heightIn(max = 520.dp)) {
+                Text("Conferma orario reale $vettoreNome", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (consigliata != null)
+                        "Verrà usata la corsa evidenziata. Puoi scegliere un'altra corsa dall'elenco."
+                    else
+                        "Scegli quale corsa usare per questo orario.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(corse) { corsa ->
+                        val eConsigliata = corsa == consigliata
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = if (eConsigliata) {
+                                CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                            } else {
+                                CardDefaults.cardColors()
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        "${corsa.partenza.toStringHHmm()} → ${corsa.arrivo.toStringHHmm()}" +
+                                            if (corsa.etichetta.isNotBlank()) " (${corsa.etichetta})" else "",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    if (eConsigliata) {
+                                        Text(
+                                            "Verrà usata questa",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                                TextButton(onClick = { onConferma(corsa) }) {
+                                    Text(if (eConsigliata) "Conferma" else "Usa")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Annulla") }
+                }
+            }
+        }
     }
 }

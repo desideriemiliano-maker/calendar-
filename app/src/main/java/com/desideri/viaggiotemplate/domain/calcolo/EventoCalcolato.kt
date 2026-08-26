@@ -20,7 +20,13 @@ data class EventoCalcolato(
     val fineReale: LocalTime,
     val inizioBlocco: LocalTime,
     val fineBlocco: LocalTime,
-    val alternative: List<EventoCalcolato> = emptyList()
+    val alternative: List<EventoCalcolato> = emptyList(),
+    /**
+     * True se la tratta è TRENO/AEREO senza alcun orario configurato: `inizioReale`/`fineReale`
+     * sono un placeholder (partenza = arrivo), non un orario reale — va aggiornato con la
+     * ricerca in tempo reale (SBB/Trenitalia) prima di scrivere l'evento a calendario.
+     */
+    val orarioDaConfermare: Boolean = false
 ) {
     fun titolo(): String = tratta.titoloTemplate
         .replace("{oraPartenza}", inizioReale.toStringHHmm())
