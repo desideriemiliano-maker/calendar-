@@ -1,5 +1,6 @@
 package com.desideri.viaggiotemplate.data.remote
 
+import com.desideri.viaggiotemplate.data.local.CredenzialiItalo
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -19,8 +20,13 @@ import java.time.ZoneId
  * differenza degli altri due client, Italo copre solo poche stazioni (le principali della rete
  * alta velocita') e non ha un endpoint di ricerca stazioni: la conversione nome -> sigla usa
  * quindi una tabella statica nota.
+ *
+ * Le credenziali guest sono bloccate dal gateway anti-bot di Italo (Layer7/Akamai, HTTP 403)
+ * indipendentemente dall'header o dalla versione dell'API usata: se [credenziali] e' null si
+ * tenta comunque il login guest (per se in futuro tornasse a funzionare), altrimenti si usa
+ * l'account reale fornito dall'utente (impostazioni > "Accedi a Italo").
  */
-class OrariItaloClient : ClientOrariTreno {
+class OrariItaloClient(private val credenziali: CredenzialiItalo? = null) : ClientOrariTreno {
 
     private val baseUrl = "https://big.ntvspa.it/BIG/v7/Rest"
     private val zonaRoma = ZoneId.of("Europe/Rome")
@@ -73,7 +79,7 @@ class OrariItaloClient : ClientOrariTreno {
                     put("InfantNumber", 0)
                     put("SeniorNumber", 0)
                     put("CurrencyCode", "EUR")
-                    put("IsGuest", true)
+                    put("IsGuest", credenziali == null)
                     put("OverrideIntervalTimeRestriction", true)
                     put("AvailabilityFilter", 1)
                 }
@@ -116,8 +122,8 @@ class OrariItaloClient : ClientOrariTreno {
                 "Login",
                 JSONObject().apply {
                     put("Domain", "WWW")
-                    put("Username", "WWW_Anonymous")
-                    put("Password", "Accenture$1")
+                    put("Username", credenziali?.username ?: "WWW_Anonymous")
+                    put("Password", credenziali?.password ?: "Accenture$1")
                 }
             )
             put("SourceSystem", 1)

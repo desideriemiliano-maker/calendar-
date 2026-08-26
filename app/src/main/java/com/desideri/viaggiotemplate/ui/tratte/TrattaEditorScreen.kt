@@ -39,6 +39,7 @@ import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import com.desideri.viaggiotemplate.domain.model.Vettore
+import com.desideri.viaggiotemplate.ui.AppContainer
 import com.desideri.viaggiotemplate.ui.common.CampoData
 import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.CampoOrarioOpzionale
@@ -460,6 +461,7 @@ private fun DialogScaricaOrariTreno(
                     oraRiferimento = oraRiferimento,
                     limite = 16,
                     chiaveRicerca = chiaveRicerca,
+                    credenzialiItalo = AppContainer.italoCredentialsStore.credenziali,
                     testoAzione = { corsa -> if (corsa in aggiunte) "Aggiunta" else "+ Aggiungi" },
                     azioneAbilitata = { corsa -> corsa !in aggiunte },
                     onAzione = { corsa -> onAggiungi(corsa); aggiunte = aggiunte + corsa }

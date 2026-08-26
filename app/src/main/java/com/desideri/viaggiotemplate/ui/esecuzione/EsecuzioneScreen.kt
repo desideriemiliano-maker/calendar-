@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
@@ -58,6 +61,7 @@ import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import com.desideri.viaggiotemplate.domain.model.Vettore
+import com.desideri.viaggiotemplate.ui.AppContainer
 import com.desideri.viaggiotemplate.ui.common.CampoData
 import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
@@ -498,6 +502,7 @@ private fun DialogScaricaOrarioTrenoSingolo(
                     oraRiferimento = oraRiferimento,
                     limite = 16,
                     chiaveRicerca = Unit,
+                    credenzialiItalo = AppContainer.italoCredentialsStore.credenziali,
                     testoAzione = { "" },
                     azioneAbilitata = { true },
                     onAzione = { corsa -> onScelto(corsa) }
@@ -620,6 +625,7 @@ private fun CardEvento(
 ) {
     var modificaManuale by remember { mutableStateOf(false) }
     var confermaEliminazione by remember { mutableStateOf(false) }
+    var mostraConfrontoAlternative by remember { mutableStateOf(false) }
     var caricamentoOrarioReale by remember { mutableStateOf(false) }
     var erroreOrarioReale by remember { mutableStateOf<String?>(null) }
     var corseDaConfermare by remember { mutableStateOf<List<CorsaScaricata>?>(null) }
@@ -633,7 +639,10 @@ private fun CardEvento(
     val vettoreConOrariReali = vettoreEffettivo?.takeIf {
         !eAncora && evento.tratta.tipo == TipoTratta.TRENO && clientOrariPer(it) != null
     }
-    val client = remember(vettoreConOrariReali) { vettoreConOrariReali?.let { clientOrariPer(it) } }
+    val credenzialiItalo = AppContainer.italoCredentialsStore.credenziali
+    val client = remember(vettoreConOrariReali, credenzialiItalo) {
+        vettoreConOrariReali?.let { clientOrariPer(it, credenzialiItalo) }
+    }
     val scope = rememberCoroutineScope()
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -674,11 +683,22 @@ private fun CardEvento(
             SelettoreColore(coloreSelezionato = colore, onCambia = onCambiaColore)
 
             if (evento.alternative.isNotEmpty()) {
-                Text("Alternative:", style = MaterialTheme.typography.labelMedium)
-                evento.alternative.forEach { alt ->
-                    TextButton(onClick = { onScegliAlternativa(alt.tratta.id, alt.inizioReale, alt.fineReale) }) {
-                        Text("${alt.tratta.nome}: ${alt.inizioReale.toStringHHmm()} → ${alt.fineReale.toStringHHmm()}")
-                    }
+                TextButton(onClick = { mostraConfrontoAlternative = true }) {
+                    Text("Confronta alternative (${evento.alternative.size})")
+                }
+                if (mostraConfrontoAlternative) {
+                    DialogConfrontoAlternative(
+                        correnteNome = evento.tratta.nome,
+                        correnteInizio = evento.inizioReale,
+                        correnteFine = evento.fineReale,
+                        alternative = evento.alternative,
+                        data = data,
+                        onScegli = { trattaId, inizio, fine ->
+                            onScegliAlternativa(trattaId, inizio, fine)
+                            mostraConfrontoAlternative = false
+                        },
+                        onDismiss = { mostraConfrontoAlternative = false }
+                    )
                 }
             }
 
@@ -759,6 +779,84 @@ private fun CardEvento(
             },
             onDismiss = { corseDaConfermare = null }
         )
+    }
+}
+
+/**
+ * Dialog di confronto tra la tratta scelta per un evento e le sue alternative (vedi [CardEvento]).
+ * Per ogni alternativa TRENO il cui vettore ha un'integrazione orari reali (SBB/Trenitalia/Italo,
+ * vedi [clientOrariPer]) interroga il servizio e mostra le corse vere disponibili invece
+ * dell'orario solo calcolato; per le altre (bus, vettore ALTRO, nessuna integrazione) mostra
+ * l'orario già calcolato dal motore. Scegliendo una riga qualsiasi si applica come nuova scelta.
+ */
+@Composable
+private fun DialogConfrontoAlternative(
+    correnteNome: String,
+    correnteInizio: LocalTime,
+    correnteFine: LocalTime,
+    alternative: List<EventoCalcolato>,
+    data: LocalDate,
+    onScegli: (trattaId: String, inizio: LocalTime, fine: LocalTime) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val credenzialiItalo = AppContainer.italoCredentialsStore.credenziali
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+            Column(
+                modifier = Modifier.padding(24.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Confronta alternative", style = MaterialTheme.typography.titleMedium)
+
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Attuale: $correnteNome", style = MaterialTheme.typography.labelMedium)
+                    Text("${correnteInizio.toStringHHmm()} → ${correnteFine.toStringHHmm()}", style = MaterialTheme.typography.bodyMedium)
+                }
+
+                alternative.forEach { alt ->
+                    val vettore = alt.tratta.vettore
+                    val client = vettore?.takeIf { alt.tratta.tipo == TipoTratta.TRENO }?.let { clientOrariPer(it, credenzialiItalo) }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(alt.tratta.nome, style = MaterialTheme.typography.labelMedium)
+                        if (client != null && vettore != null) {
+                            Text(descrizioneFonteOrari(vettore), style = MaterialTheme.typography.bodySmall)
+                            RicercaOrariTreno(
+                                vettore = vettore,
+                                daStazione = alt.tratta.luogoPartenza,
+                                aStazione = alt.tratta.luogoArrivo,
+                                data = data,
+                                oraRiferimento = alt.inizioReale.minusHours(2),
+                                limite = 16,
+                                chiaveRicerca = alt.tratta.id,
+                                credenzialiItalo = credenzialiItalo,
+                                testoAzione = { "" },
+                                azioneAbilitata = { true },
+                                onAzione = { corsa -> onScegli(alt.tratta.id, corsa.partenza, corsa.arrivo) },
+                                modifier = Modifier.heightIn(max = 220.dp)
+                            )
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onScegli(alt.tratta.id, alt.inizioReale, alt.fineReale) }
+                                    .padding(vertical = 8.dp)
+                            ) {
+                                Text(
+                                    "${alt.inizioReale.toStringHHmm()} → ${alt.fineReale.toStringHHmm()}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Chiudi") }
+                }
+            }
+        }
     }
 }
 

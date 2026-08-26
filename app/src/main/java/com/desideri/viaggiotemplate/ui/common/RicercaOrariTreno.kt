@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.desideri.viaggiotemplate.data.local.CredenzialiItalo
 import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
 import com.desideri.viaggiotemplate.data.remote.clientOrariPer
 import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
@@ -51,16 +52,18 @@ fun RicercaOrariTreno(
     oraRiferimento: LocalTime = LocalTime.MIDNIGHT,
     limite: Int = 16,
     chiaveRicerca: Any?,
+    credenzialiItalo: CredenzialiItalo? = null,
     testoAzione: (CorsaScaricata) -> String,
     azioneAbilitata: (CorsaScaricata) -> Boolean,
-    onAzione: (CorsaScaricata) -> Unit
+    onAzione: (CorsaScaricata) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val client = remember(vettore) { clientOrariPer(vettore) }
+    val client = remember(vettore, credenzialiItalo) { clientOrariPer(vettore, credenzialiItalo) }
     var inCorso by remember { mutableStateOf(true) }
     var errore by remember { mutableStateOf<String?>(null) }
     var risultati by remember { mutableStateOf<List<CorsaScaricata>>(emptyList()) }
 
-    LaunchedEffect(vettore, daStazione, aStazione, data, oraRiferimento, chiaveRicerca) {
+    LaunchedEffect(vettore, daStazione, aStazione, data, oraRiferimento, chiaveRicerca, credenzialiItalo) {
         if (client == null) {
             inCorso = false
             errore = "Nessuna integrazione disponibile per il vettore $vettore."
@@ -88,7 +91,7 @@ fun RicercaOrariTreno(
         Text(msg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 12.dp))
     }
 
-    LazyColumn(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    LazyColumn(modifier = modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(risultati) { corsa ->
             val abilitata = azioneAbilitata(corsa)
             Row(

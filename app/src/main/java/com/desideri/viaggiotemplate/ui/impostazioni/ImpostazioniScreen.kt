@@ -13,9 +13,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -31,6 +37,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
@@ -104,6 +112,79 @@ fun DialogCalendario(viewModel: ImpostazioniViewModel, onDismiss: () -> Unit) {
 
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss) { Text("Chiudi") }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Login con un account Italo reale, alternativo a quello "guest" di default usato da
+ * `OrariItaloClient`: quest'ultimo e' bloccato dal gateway anti-bot di Italo (HTTP 403), un vero
+ * account potrebbe non esserlo, ma non c'e' alcuna garanzia (l'endpoint non e' ufficiale e puo'
+ * bloccare comunque il traffico non da browser). Username e password restano solo su questo
+ * dispositivo, cifrati (vedi `ItaloCredentialsStore`).
+ */
+@Composable
+fun DialogLoginItalo(viewModel: ImpostazioniViewModel, onDismiss: () -> Unit) {
+    val stato by viewModel.stato.collectAsState()
+    var username by remember { mutableStateOf(stato.italoUsername ?: "") }
+    var password by remember { mutableStateOf("") }
+    var passwordVisibile by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(24.dp).fillMaxWidth()) {
+                Text("Accedi a Italo", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Usato al posto del login guest (bloccato da Italo) per cercare gli orari reali. " +
+                        "Endpoint non ufficiale: anche con un account vero non è garantito che funzioni. " +
+                        "Le credenziali restano cifrate solo su questo dispositivo.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+                )
+
+                if (stato.italoUsername != null) {
+                    Text(
+                        "Account salvato: ${stato.italoUsername}",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                }
+
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("Username / email Italo") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password") },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisibile) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisibile = !passwordVisibile }) {
+                            Icon(
+                                if (passwordVisibile) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = if (passwordVisibile) "Nascondi password" else "Mostra password"
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                )
+
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
+                    if (stato.italoUsername != null) {
+                        TextButton(onClick = { viewModel.rimuoviCredenzialiItalo(); password = "" }) { Text("Rimuovi") }
+                    }
+                    TextButton(onClick = onDismiss) { Text("Chiudi") }
+                    Button(
+                        onClick = { viewModel.salvaCredenzialiItalo(username.trim(), password) },
+                        enabled = username.isNotBlank() && password.isNotBlank()
+                    ) { Text("Salva") }
                 }
             }
         }

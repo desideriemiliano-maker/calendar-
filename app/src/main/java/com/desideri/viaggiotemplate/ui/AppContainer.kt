@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.desideri.viaggiotemplate.data.local.AppDatabase
 import com.desideri.viaggiotemplate.data.local.ImpostazioniStore
+import com.desideri.viaggiotemplate.data.local.ItaloCredentialsStore
 import com.desideri.viaggiotemplate.data.local.MIGRATION_1_2
 import com.desideri.viaggiotemplate.data.local.MIGRATION_2_3
 import com.desideri.viaggiotemplate.data.local.MIGRATION_3_4
@@ -27,6 +28,8 @@ object AppContainer {
         private set
     lateinit var impostazioniStore: ImpostazioniStore
         private set
+    lateinit var italoCredentialsStore: ItaloCredentialsStore
+        private set
 
     fun init(context: Context) {
         if (::database.isInitialized) return
@@ -44,5 +47,6 @@ object AppContainer {
         trattaRepository = TrattaRepository(database.trattaDao())
         templateRepository = TemplateRepository(database.templateDao())
         impostazioniStore = ImpostazioniStore(context)
+        italoCredentialsStore = ItaloCredentialsStore(context)
     }
 }
