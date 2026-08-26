@@ -50,6 +50,7 @@ import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
 import com.desideri.viaggiotemplate.data.remote.OrariTrasportiSvizzeriClient
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
 import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
+import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
@@ -59,6 +60,8 @@ import com.desideri.viaggiotemplate.ui.common.CampoData
 import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 import com.desideri.viaggiotemplate.ui.common.RicercaOrariSbb
+import com.desideri.viaggiotemplate.ui.common.SelettoreColore
+import com.desideri.viaggiotemplate.ui.common.SelettoreNotifica
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -179,6 +182,9 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                     evento = evento,
                     data = stato.data,
                     eAncora = eAncora,
+                    notifica = stato.notificheSelezionate[evento.templateSlotId] ?: Notifica.NESSUNA,
+                    descrizione = stato.descrizioni[evento.templateSlotId] ?: "",
+                    colore = stato.coloriSelezionati[evento.templateSlotId] ?: evento.tratta.colore,
                     onScegliAlternativa = { nuovaTrattaId ->
                         viewModel.scegliAlternativa(evento.templateSlotId, nuovaTrattaId)
                     },
@@ -188,7 +194,10 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                     onElimina = { viewModel.eliminaEvento(evento.templateSlotId) },
                     onCorseScaricate = { corse ->
                         viewModel.applicaCorseScaricate(evento.templateSlotId, evento.tratta.id, corse)
-                    }
+                    },
+                    onCambiaNotifica = { viewModel.aggiornaNotifica(evento.templateSlotId, it) },
+                    onCambiaDescrizione = { viewModel.aggiornaDescrizione(evento.templateSlotId, it) },
+                    onCambiaColore = { viewModel.aggiornaColoreEvento(evento.templateSlotId, it) }
                 )
             }
 
@@ -462,10 +471,16 @@ private fun CardEvento(
     evento: EventoCalcolato,
     data: LocalDate,
     eAncora: Boolean,
+    notifica: Notifica,
+    descrizione: String,
+    colore: Int?,
     onScegliAlternativa: (String) -> Unit,
     onModificaManuale: (LocalTime, LocalTime) -> Unit,
     onElimina: () -> Unit,
-    onCorseScaricate: (List<CorsaScaricata>) -> Unit
+    onCorseScaricate: (List<CorsaScaricata>) -> Unit,
+    onCambiaNotifica: (Notifica) -> Unit,
+    onCambiaDescrizione: (String) -> Unit,
+    onCambiaColore: (Int?) -> Unit
 ) {
     var modificaManuale by remember { mutableStateOf(false) }
     var confermaEliminazione by remember { mutableStateOf(false) }
@@ -494,6 +509,18 @@ private fun CardEvento(
                 "Blocco calendario: ${evento.inizioBlocco.toStringHHmm()} → ${evento.fineBlocco.toStringHHmm()}",
                 style = MaterialTheme.typography.bodySmall
             )
+
+            SelettoreNotifica(valore = notifica, onCambia = onCambiaNotifica)
+
+            OutlinedTextField(
+                value = descrizione,
+                onValueChange = onCambiaDescrizione,
+                label = { Text("Descrizione (opzionale)") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            SelettoreColore(coloreSelezionato = colore, onCambia = onCambiaColore)
 
             if (evento.alternative.isNotEmpty()) {
                 Text("Alternative:", style = MaterialTheme.typography.labelMedium)

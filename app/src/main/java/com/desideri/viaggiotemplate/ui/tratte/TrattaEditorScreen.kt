@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
 import com.desideri.viaggiotemplate.domain.model.Arrotondamento
+import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Tratta
@@ -42,6 +43,7 @@ import com.desideri.viaggiotemplate.ui.common.CampoOrario
 import com.desideri.viaggiotemplate.ui.common.CampoOrarioOpzionale
 import com.desideri.viaggiotemplate.ui.common.RicercaOrariSbb
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
+import com.desideri.viaggiotemplate.ui.common.SelettoreNotifica
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
@@ -72,6 +74,7 @@ fun TrattaEditorScreen(
     var vettore by remember { mutableStateOf(trattaEsistente?.vettore) }
     var colore by remember { mutableStateOf(trattaEsistente?.colore) }
     var orarioInizioDefault by remember { mutableStateOf<LocalTime?>(trattaEsistente?.orarioInizioDefault) }
+    var notifica by remember { mutableStateOf(trattaEsistente?.notifica ?: Notifica.NESSUNA) }
 
     LazyColumn(
         modifier = Modifier.padding(padding).padding(16.dp),
@@ -230,6 +233,8 @@ fun TrattaEditorScreen(
             SelettoreColore(coloreSelezionato = colore, onCambia = { colore = it })
         }
 
+        item { SelettoreNotifica(notifica) { notifica = it } }
+
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
@@ -250,7 +255,8 @@ fun TrattaEditorScreen(
                         vettore = if (tipo == TipoTratta.TRENO) vettore else null,
                         ordine = trattaEsistente?.ordine ?: ordineIniziale(),
                         colore = colore,
-                        orarioInizioDefault = if (tipo == TipoTratta.RIUNIONE) orarioInizioDefault else null
+                        orarioInizioDefault = if (tipo == TipoTratta.RIUNIONE) orarioInizioDefault else null,
+                        notifica = notifica
                     )
                     onSalva(tratta)
                 }) { Text("Salva") }

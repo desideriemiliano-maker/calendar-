@@ -22,7 +22,7 @@ import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
         TemplateSlotCandidatoEntity::class,
         TemplateSlotEntity::class
     ],
-    version = 6,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -75,5 +75,17 @@ val MIGRATION_4_5: Migration = object : Migration(4, 5) {
 val MIGRATION_5_6: Migration = object : Migration(5, 6) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE tratta ADD COLUMN vettore TEXT")
+    }
+}
+
+val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE tratta ADD COLUMN notifica TEXT NOT NULL DEFAULT 'NESSUNA'")
+    }
+}
+
+val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE template_slot ADD COLUMN notificaOverride TEXT")
     }
 }

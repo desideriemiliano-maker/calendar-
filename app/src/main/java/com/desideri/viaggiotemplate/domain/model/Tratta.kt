@@ -41,7 +41,9 @@ data class Tratta(
      * `durataMinutiReale` per proporre inizio/fine di default quando questa tratta
      * è usata come ancora del calcolo. Null per le tratte senza un orario fisso.
      */
-    val orarioInizioDefault: LocalTime? = null
+    val orarioInizioDefault: LocalTime? = null,
+    /** Promemoria calendario di default per gli eventi generati da questa tratta. */
+    val notifica: Notifica = Notifica.NESSUNA
 ) {
     companion object {
         /** Margine di default suggerito in base al tipo, coerente con quanto validato negli strumenti HTML. */

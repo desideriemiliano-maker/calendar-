@@ -47,11 +47,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.data.local.entities.TemplateEntity
+import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
+import com.desideri.viaggiotemplate.ui.common.SelettoreNotificaConEreditarieta
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -303,6 +305,12 @@ private fun RigaSlot(
                 Checkbox(checked = slot.ancora, onCheckedChange = { onCambia(slot.copy(ancora = it)) })
                 Text("Usa come ancora del calcolo")
             }
+
+            SelettoreNotificaConEreditarieta(
+                valore = slot.notificaOverride,
+                notificaEreditata = trattaSelezionata?.notifica ?: Notifica.NESSUNA,
+                onCambia = { onCambia(slot.copy(notificaOverride = it)) }
+            )
 
             TextButton(onClick = { espansoCandidati = true }) {
                 Text("Alternative per questo slot (${slot.trattaCandidatiIds.size})")

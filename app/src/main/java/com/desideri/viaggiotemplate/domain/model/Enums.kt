@@ -27,3 +27,11 @@ enum class Vettore {
     SBB,
     ALTRO
 }
+
+/** Promemoria del calendario prima dell'inizio dell'evento; NESSUNA = nessun promemoria. */
+enum class Notifica(val minuti: Int?, val etichetta: String) {
+    NESSUNA(null, "Nessuna"),
+    QUINDICI_MINUTI(15, "15 min prima"),
+    TRENTA_MINUTI(30, "30 min prima"),
+    UN_ORA(60, "1 ora prima")
+}

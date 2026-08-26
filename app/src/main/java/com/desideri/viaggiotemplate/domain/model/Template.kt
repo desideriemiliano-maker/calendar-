@@ -13,7 +13,9 @@ data class TemplateSlot(
     val trattaCandidatiIds: List<String>,
     val trattaSelezionataId: String,
     /** True per una tratta aggiunta al volo durante l'esecuzione (non fa parte del template salvato). */
-    val extra: Boolean = false
+    val extra: Boolean = false,
+    /** null = eredita il promemoria dalla tratta selezionata; un valore esplicito lo sovrascrive. */
+    val notificaOverride: Notifica? = null
 )
 
 data class Template(

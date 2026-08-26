@@ -3,6 +3,7 @@ package com.desideri.viaggiotemplate.repository
 import com.desideri.viaggiotemplate.data.local.dao.TemplateDao
 import com.desideri.viaggiotemplate.data.local.entities.TemplateEntity
 import com.desideri.viaggiotemplate.data.local.entities.TemplateSlotEntity
+import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import kotlinx.coroutines.flow.Flow
@@ -23,7 +24,8 @@ class TemplateRepository(private val dao: TemplateDao) {
                 ordine = sc.slot.ordine,
                 ancora = sc.slot.ancora,
                 trattaCandidatiIds = sc.candidati.map { it.trattaId },
-                trattaSelezionataId = sc.slot.trattaSelezionataId
+                trattaSelezionataId = sc.slot.trattaSelezionataId,
+                notificaOverride = sc.slot.notificaOverride?.let { Notifica.valueOf(it) }
             )
         }
         return Template(id = entity.id, nome = entity.nome, slots = slots, ordine = entity.ordine, colore = entity.colore)
@@ -37,7 +39,8 @@ class TemplateRepository(private val dao: TemplateDao) {
                 templateId = template.id,
                 ordine = it.ordine,
                 ancora = it.ancora,
-                trattaSelezionataId = it.trattaSelezionataId
+                trattaSelezionataId = it.trattaSelezionataId,
+                notificaOverride = it.notificaOverride?.name
             )
         }
         val candidatiPerSlot = template.slots.associate { it.id to it.trattaCandidatiIds }

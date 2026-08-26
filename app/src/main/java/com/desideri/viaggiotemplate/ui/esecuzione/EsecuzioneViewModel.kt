@@ -13,6 +13,8 @@ import com.desideri.viaggiotemplate.domain.calcolo.SlotRisolto
 import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
 import com.desideri.viaggiotemplate.domain.calendar.CalendarWriter
 import com.desideri.viaggiotemplate.domain.calendar.CalendarioDisponibile
+import com.desideri.viaggiotemplate.domain.calendar.EventoDaScrivere
+import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
@@ -49,6 +51,14 @@ data class StatoEsecuzione(
     val ancoreManuali: Map<String, Pair<LocalTime, LocalTime>> = emptyMap(),
     /** Slot esclusi da questo calcolo (tratte eliminate dall'utente): il motore le salta, ricalcolando le tratte adiacenti come se fossero direttamente consecutive. */
     val slotEsclusi: Set<String> = emptySet(),
+    /**
+     * Promemoria/descrizione/colore scelti per questa sola esecuzione (templateSlotId -> valore).
+     * Popolati con i default (notifica ereditata da slot/tratta, descrizione vuota, colore della
+     * tratta) subito dopo ogni calcolo, poi modificabili singolarmente prima di scrivere a calendario.
+     */
+    val notificheSelezionate: Map<String, Notifica> = emptyMap(),
+    val descrizioni: Map<String, String> = emptyMap(),
+    val coloriSelezionati: Map<String, Int?> = emptyMap(),
     /** Tutta la libreria Tratte, per poter aggiungere una tratta extra a questa sola esecuzione. */
     val libreriaTratte: List<Tratta> = emptyList(),
     val calendarioConfigurato: CalendarioDisponibile? = null,
@@ -102,6 +112,9 @@ class EsecuzioneViewModel(
                 eventiCalcolati = emptyList(),
                 ancoreManuali = emptyMap(),
                 slotEsclusi = emptySet(),
+                notificheSelezionate = emptyMap(),
+                descrizioni = emptyMap(),
+                coloriSelezionati = emptyMap(),
                 orariAncoreInput = orariAncoreInput
             )
         }
@@ -147,7 +160,31 @@ class EsecuzioneViewModel(
             eventiCalcolati = emptyList(),
             ancoreManuali = emptyMap(),
             slotEsclusi = emptySet(),
+            notificheSelezionate = emptyMap(),
+            descrizioni = emptyMap(),
+            coloriSelezionati = emptyMap(),
             messaggio = null
+        )
+    }
+
+    /** Aggiorna il promemoria scelto per un evento, solo per questa esecuzione. */
+    fun aggiornaNotifica(templateSlotId: String, notifica: Notifica) {
+        _stato.value = _stato.value.copy(
+            notificheSelezionate = _stato.value.notificheSelezionate + (templateSlotId to notifica)
+        )
+    }
+
+    /** Aggiorna la descrizione testuale libera di un evento, solo per questa esecuzione. */
+    fun aggiornaDescrizione(templateSlotId: String, testo: String) {
+        _stato.value = _stato.value.copy(
+            descrizioni = _stato.value.descrizioni + (templateSlotId to testo)
+        )
+    }
+
+    /** Aggiorna il colore dell'evento calendario, solo per questa esecuzione. */
+    fun aggiornaColoreEvento(templateSlotId: String, colore: Int?) {
+        _stato.value = _stato.value.copy(
+            coloriSelezionati = _stato.value.coloriSelezionati + (templateSlotId to colore)
         )
     }
 
@@ -285,7 +322,27 @@ class EsecuzioneViewModel(
 
         try {
             val eventi = motore.calcola(slotsRisolti, ancore)
-            _stato.value = _stato.value.copy(eventiCalcolati = eventi, messaggio = null)
+            val slotById = slotsOrdinati.associateBy { it.id }
+
+            val notifiche = _stato.value.notificheSelezionate.toMutableMap()
+            val descrizioni = _stato.value.descrizioni.toMutableMap()
+            val colori = _stato.value.coloriSelezionati.toMutableMap()
+            for (ev in eventi) {
+                val id = ev.templateSlotId
+                if (id !in notifiche) {
+                    notifiche[id] = slotById[id]?.notificaOverride ?: ev.tratta.notifica
+                }
+                if (id !in descrizioni) descrizioni[id] = ""
+                if (id !in colori) colori[id] = ev.tratta.colore
+            }
+
+            _stato.value = _stato.value.copy(
+                eventiCalcolati = eventi,
+                notificheSelezionate = notifiche,
+                descrizioni = descrizioni,
+                coloriSelezionati = colori,
+                messaggio = null
+            )
         } catch (e: Exception) {
             _stato.value = _stato.value.copy(messaggio = e.message ?: "Errore nel calcolo")
         }
@@ -294,14 +351,22 @@ class EsecuzioneViewModel(
     fun aggiungiAlCalendario(context: Context) {
         val s = _stato.value
         if (s.eventiCalcolati.isEmpty()) return
-        val calendarioId = s.calendarioConfigurato?.id
-        if (calendarioId == null) {
+        val calendario = s.calendarioConfigurato
+        if (calendario == null) {
             _stato.value = s.copy(messaggio = "Configura un calendario di destinazione nella sezione Impostazioni")
             return
         }
         try {
             val writer = CalendarWriter(context)
-            val idInseriti = writer.inserisciEventi(calendarioId, s.data, s.eventiCalcolati)
+            val eventiDaScrivere = s.eventiCalcolati.map { ev ->
+                EventoDaScrivere(
+                    evento = ev,
+                    notifica = s.notificheSelezionate[ev.templateSlotId] ?: Notifica.NESSUNA,
+                    descrizione = s.descrizioni[ev.templateSlotId] ?: "",
+                    colore = s.coloriSelezionati[ev.templateSlotId] ?: ev.tratta.colore
+                )
+            }
+            val idInseriti = writer.inserisciEventi(calendario, s.data, eventiDaScrivere)
             _stato.value = if (idInseriti.size == s.eventiCalcolati.size) {
                 s.copy(messaggio = "${idInseriti.size} eventi aggiunti al calendario ✓")
             } else {

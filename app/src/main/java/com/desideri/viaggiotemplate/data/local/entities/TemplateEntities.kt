@@ -30,7 +30,9 @@ data class TemplateSlotEntity(
     val templateId: String,
     val ordine: Int,
     val ancora: Boolean,
-    val trattaSelezionataId: String
+    val trattaSelezionataId: String,
+    /** Notifica.name; null = eredita il promemoria dalla tratta selezionata. */
+    val notificaOverride: String? = null
 )
 
 @Entity(

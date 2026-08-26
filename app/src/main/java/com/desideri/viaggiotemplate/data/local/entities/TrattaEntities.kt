@@ -24,7 +24,9 @@ data class TrattaEntity(
     /** Minuti dalla mezzanotte (0-1439); null se non impostato. */
     val orarioInizioDefaultMinuti: Int? = null,
     /** Vettore.name, solo per TRENO; null = non specificato. */
-    val vettore: String? = null
+    val vettore: String? = null,
+    /** Notifica.name, promemoria calendario di default per questa tratta. */
+    val notifica: String = "NESSUNA"
 )
 
 @Entity(
