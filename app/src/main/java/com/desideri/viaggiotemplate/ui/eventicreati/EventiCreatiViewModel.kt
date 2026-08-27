@@ -24,10 +24,10 @@ data class StatoEventiCreati(
     val caricamentoEventi: Boolean = false,
     val messaggio: String? = null
 ) {
-    /** Esecuzioni che rispettano il filtro data (per data di INSERIMENTO, non della gita), più recenti prima. */
+    /** Esecuzioni che rispettano il filtro data (per data di inizio del primo evento, cioè del viaggio), più recenti prima. */
     val risultati: List<EsecuzioneCreata>
         get() = esecuzioni.filter { esecuzione ->
-            filtroData == null || esecuzione.dataCreazione.atZone(ZoneId.systemDefault()).toLocalDate() == filtroData
+            filtroData == null || esecuzione.inizioPrimoEvento.atZone(ZoneId.systemDefault()).toLocalDate() == filtroData
         }
 }
 

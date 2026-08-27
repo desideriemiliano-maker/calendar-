@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.util.UUID
 
 data class StatoEsecuzione(
@@ -478,7 +479,12 @@ class EsecuzioneViewModel(
             val idInseriti = writer.inserisciEventi(calendario, s.data, eventiDaScrivere)
             if (idInseriti.isNotEmpty()) {
                 val esecuzioneId = UUID.randomUUID().toString()
-                viewModelScope.launch { esecuzioneCreataRepository.registra(esecuzioneId, idInseriti) }
+                // Orario di inizio del più mattiniero degli eventi (stesso arrotondamento scritto su
+                // DTSTART): più intuitivo da ritrovare in "Eventi creati" rispetto al momento in cui
+                // si è premuto il pulsante, che può non coincidere col giorno del viaggio.
+                val inizioPrimoEvento = s.data.atTime(s.eventiCalcolati.minOf { it.inizioBlocco })
+                    .atZone(ZoneId.systemDefault()).toInstant()
+                viewModelScope.launch { esecuzioneCreataRepository.registra(esecuzioneId, idInseriti, inizioPrimoEvento) }
             }
             _stato.value = if (idInseriti.size == s.eventiCalcolati.size) {
                 s.copy(messaggio = "${idInseriti.size} eventi aggiunti al calendario ✓")

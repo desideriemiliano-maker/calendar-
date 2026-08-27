@@ -13,10 +13,10 @@ class EsecuzioneCreataRepository(private val dao: EsecuzioneCreataDao) {
     fun osservaTutte(): Flow<List<EsecuzioneCreata>> =
         dao.osservaTutte().map { lista -> lista.map { it.toDomain() } }
 
-    /** Registra una nuova esecuzione con gli ID (Calendar Provider) degli eventi che ha scritto. */
-    suspend fun registra(id: String, eventIds: List<Long>, dataCreazione: Instant = Instant.now()) {
+    /** Registra una nuova esecuzione con gli ID (Calendar Provider) degli eventi che ha scritto e l'orario di inizio del più mattiniero tra questi. */
+    suspend fun registra(id: String, eventIds: List<Long>, inizioPrimoEvento: Instant) {
         dao.registraEsecuzione(
-            EsecuzioneCreataEntity(id = id, dataCreazione = dataCreazione.toEpochMilli()),
+            EsecuzioneCreataEntity(id = id, inizioPrimoEvento = inizioPrimoEvento.toEpochMilli()),
             eventIds.map { EventoCreatoEntity(esecuzioneId = id, calendarEventId = it) }
         )
     }
@@ -24,4 +24,4 @@ class EsecuzioneCreataRepository(private val dao: EsecuzioneCreataDao) {
     suspend fun eventIdsPer(esecuzioneId: String): List<Long> = dao.eventIdsPerEsecuzione(esecuzioneId)
 }
 
-private fun EsecuzioneCreataEntity.toDomain() = EsecuzioneCreata(id = id, dataCreazione = Instant.ofEpochMilli(dataCreazione))
+private fun EsecuzioneCreataEntity.toDomain() = EsecuzioneCreata(id = id, inizioPrimoEvento = Instant.ofEpochMilli(inizioPrimoEvento))

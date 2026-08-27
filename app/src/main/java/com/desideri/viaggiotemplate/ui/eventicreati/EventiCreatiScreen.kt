@@ -96,7 +96,7 @@ private fun PannelloRicerca(stato: StatoEventiCreati, viewModel: EventiCreatiVie
 
     Text("Eventi creati", style = MaterialTheme.typography.titleMedium)
     Text(
-        "Cerca per data di inserimento le esecuzioni di \"Aggiungi al calendario\" e rileggi gli eventi scritti.",
+        "Cerca per data del viaggio (l'inizio del primo evento) le esecuzioni di \"Aggiungi al calendario\" e rileggi gli eventi scritti.",
         style = MaterialTheme.typography.bodySmall,
         modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
     )
@@ -105,7 +105,7 @@ private fun PannelloRicerca(stato: StatoEventiCreati, viewModel: EventiCreatiVie
         value = stato.filtroData?.format(FORMATO_DATA) ?: "",
         onValueChange = {},
         readOnly = true,
-        label = { Text("Data di inserimento") },
+        label = { Text("Data del viaggio") },
         placeholder = { Text("Tutte le date") },
         trailingIcon = {
             Row {
@@ -145,7 +145,7 @@ private fun PannelloRicerca(stato: StatoEventiCreati, viewModel: EventiCreatiVie
                     onClick = { viewModel.selezionaEsecuzione(context, esecuzione) }
                 ) {
                     Text(
-                        esecuzione.dataCreazione.atZone(ZoneId.systemDefault()).format(FORMATO_DATA_ORA),
+                        esecuzione.inizioPrimoEvento.atZone(ZoneId.systemDefault()).format(FORMATO_DATA_ORA),
                         modifier = Modifier.padding(12.dp)
                     )
                 }
@@ -161,7 +161,7 @@ private fun PannelloDettaglio(stato: StatoEventiCreati, viewModel: EventiCreatiV
             Icon(Icons.Filled.ArrowBack, contentDescription = "Torna ai risultati")
         }
         Text(
-            "Eventi del ${stato.esecuzioneSelezionata?.dataCreazione?.atZone(ZoneId.systemDefault())?.format(FORMATO_DATA_ORA).orEmpty()}",
+            "Eventi del ${stato.esecuzioneSelezionata?.inizioPrimoEvento?.atZone(ZoneId.systemDefault())?.format(FORMATO_DATA_ORA).orEmpty()}",
             style = MaterialTheme.typography.titleMedium
         )
     }
