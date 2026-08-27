@@ -6,9 +6,26 @@ import android.content.Context
 import android.provider.CalendarContract
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
 import com.desideri.viaggiotemplate.domain.model.Notifica
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import kotlin.math.abs
+
+/**
+ * Un evento scritto a calendario da una precedente esecuzione, riletto dal Calendar Provider a
+ * partire dagli ID evento salvati localmente (vedi EsecuzioneCreataRepository): il Calendar
+ * Provider NON permette a un'app normale di taggare eventi con dati propri via ExtendedProperties
+ * ("Only sync adapters may write using .../extendedproperties"), quindi l'associazione
+ * evento-esecuzione va tenuta in un database locale invece che sul provider stesso.
+ */
+data class EventoCreato(
+    val eventoId: Long,
+    val inizio: ZonedDateTime,
+    val fine: ZonedDateTime,
+    val titolo: String,
+    val descrizione: String
+)
 
 /** Un calendario del dispositivo su cui l'app può scrivere eventi. */
 data class CalendarioDisponibile(
@@ -126,6 +143,51 @@ class CalendarWriter(private val context: Context) {
             put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
         }
         context.contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, values)
+    }
+
+    /**
+     * Rilegge dal Calendar Provider i dettagli (orari, titolo, descrizione) degli eventi con
+     * questi [eventIds] — tipicamente quelli salvati per una singola esecuzione in
+     * EsecuzioneCreataRepository. Eventi nel frattempo eliminati dall'utente direttamente sul
+     * calendario non compaiono più: non c'è modo di distinguerli da ID mai esistiti, quindi
+     * semplicemente si omettono.
+     */
+    fun eventiPerId(eventIds: List<Long>): List<EventoCreato> {
+        if (eventIds.isEmpty()) return emptyList()
+
+        val proiezione = arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.TITLE,
+            CalendarContract.Events.DTSTART,
+            CalendarContract.Events.DTEND,
+            CalendarContract.Events.DESCRIPTION,
+            CalendarContract.Events.EVENT_TIMEZONE
+        )
+        val selezione = "${CalendarContract.Events._ID} IN (${eventIds.joinToString(",") { "?" }})"
+        val args = eventIds.map { it.toString() }.toTypedArray()
+
+        val out = mutableListOf<EventoCreato>()
+        context.contentResolver.query(
+            CalendarContract.Events.CONTENT_URI, proiezione, selezione, args, "${CalendarContract.Events.DTSTART} ASC"
+        )?.use { cursor ->
+            val idxId = cursor.getColumnIndexOrThrow(CalendarContract.Events._ID)
+            val idxTitolo = cursor.getColumnIndexOrThrow(CalendarContract.Events.TITLE)
+            val idxInizio = cursor.getColumnIndexOrThrow(CalendarContract.Events.DTSTART)
+            val idxFine = cursor.getColumnIndexOrThrow(CalendarContract.Events.DTEND)
+            val idxDescrizione = cursor.getColumnIndexOrThrow(CalendarContract.Events.DESCRIPTION)
+            val idxFuso = cursor.getColumnIndexOrThrow(CalendarContract.Events.EVENT_TIMEZONE)
+            while (cursor.moveToNext()) {
+                val fuso = cursor.getString(idxFuso)?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: ZoneId.systemDefault()
+                out += EventoCreato(
+                    eventoId = cursor.getLong(idxId),
+                    inizio = Instant.ofEpochMilli(cursor.getLong(idxInizio)).atZone(fuso),
+                    fine = Instant.ofEpochMilli(cursor.getLong(idxFine)).atZone(fuso),
+                    titolo = cursor.getString(idxTitolo) ?: "",
+                    descrizione = cursor.getString(idxDescrizione) ?: ""
+                )
+            }
+        }
+        return out.sortedBy { it.inizio }
     }
 
     /**

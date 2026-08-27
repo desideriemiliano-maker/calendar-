@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.MoreVert
@@ -31,6 +32,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.desideri.viaggiotemplate.ui.esecuzione.EsecuzioneScreen
+import com.desideri.viaggiotemplate.ui.eventicreati.DialogEventiCreati
 import com.desideri.viaggiotemplate.ui.impostazioni.DialogCalendario
 import com.desideri.viaggiotemplate.ui.impostazioni.DialogVersioni
 import com.desideri.viaggiotemplate.ui.impostazioni.ImpostazioniViewModel
@@ -55,6 +57,7 @@ fun AppNavigation() {
     var menuEspanso by remember { mutableStateOf(false) }
     var mostraCalendario by remember { mutableStateOf(false) }
     var mostraVersioni by remember { mutableStateOf(false) }
+    var mostraEventiCreati by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -69,6 +72,11 @@ fun AppNavigation() {
                             text = { Text("Calendario") },
                             leadingIcon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
                             onClick = { menuEspanso = false; mostraCalendario = true }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Eventi creati") },
+                            leadingIcon = { Icon(Icons.Filled.History, contentDescription = null) },
+                            onClick = { menuEspanso = false; mostraEventiCreati = true }
                         )
                         DropdownMenuItem(
                             text = { Text("Versioni") },
@@ -125,5 +133,8 @@ fun AppNavigation() {
     }
     if (mostraVersioni) {
         DialogVersioni(onDismiss = { mostraVersioni = false })
+    }
+    if (mostraEventiCreati) {
+        DialogEventiCreati(onDismiss = { mostraEventiCreati = false })
     }
 }

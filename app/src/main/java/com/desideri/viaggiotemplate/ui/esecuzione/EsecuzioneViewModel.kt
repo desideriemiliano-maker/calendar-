@@ -20,6 +20,7 @@ import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.Vettore
+import com.desideri.viaggiotemplate.repository.EsecuzioneCreataRepository
 import com.desideri.viaggiotemplate.repository.TemplateRepository
 import com.desideri.viaggiotemplate.repository.TrattaRepository
 import com.desideri.viaggiotemplate.ui.AppContainer
@@ -79,7 +80,8 @@ data class StatoEsecuzione(
 class EsecuzioneViewModel(
     private val templateRepository: TemplateRepository,
     private val trattaRepository: TrattaRepository,
-    private val impostazioniStore: ImpostazioniStore
+    private val impostazioniStore: ImpostazioniStore,
+    private val esecuzioneCreataRepository: EsecuzioneCreataRepository
 ) : ViewModel() {
 
     private val motore = MotoreCalcolo()
@@ -281,31 +283,47 @@ class EsecuzioneViewModel(
 
     /**
      * Calcola, tra le corse scaricate (es. da SBB/Trenitalia), quale verrebbe scelta
-     * automaticamente dal motore se diventassero orari fissi della tratta — stessa logica di
-     * margine rispetto alle tratte adiacenti già usata per fissi/ricorrenti. Non modifica lo
-     * stato: serve solo a evidenziarla nel pannello di conferma prima che l'utente scelga.
+     * automaticamente dal motore se [trattaId] fosse la tratta selezionata per [templateSlotId] e
+     * quelle corse diventassero suoi orari fissi — stessa logica di margine rispetto alle tratte
+     * adiacenti già usata per fissi/ricorrenti. [trattaId] può essere sia la tratta già
+     * selezionata per quello slot (uso nel pannello di conferma di "Aggiorna con orario reale")
+     * sia una tratta alternativa non ancora scelta (uso nel confronto alternative): la
+     * simulazione seleziona sempre [trattaId] per quello slot, quindi nel primo caso è un
+     * no-op. Non modifica lo stato: serve solo a evidenziare la scelta consigliata prima che
+     * l'utente scelga.
      */
     fun calcolaSceltaConsigliata(templateSlotId: String, trattaId: String, corse: List<CorsaScaricata>): CorsaScaricata? {
         val s = _stato.value
+        val template = s.templateSelezionato ?: return null
         val trattaEsistente = s.tratte[trattaId] ?: return null
         val trattaArricchita = trattaEsistente.copy(orariFissi = trattaEsistente.orariFissi + corse.map { it.toOrarioFisso() })
         val tratteSimulate = s.tratte + (trattaId to trattaArricchita)
-        val evento = calcolaEventiConTratte(tratteSimulate)?.firstOrNull { it.templateSlotId == templateSlotId } ?: return null
+        val templateSimulato = template.copy(
+            slots = template.slots.map { if (it.id == templateSlotId) it.copy(trattaSelezionataId = trattaId) else it }
+        )
+        val evento = calcolaEventiConTratte(tratteSimulate, templateSimulato)?.firstOrNull { it.templateSlotId == templateSlotId } ?: return null
         return corse.firstOrNull { it.partenza == evento.inizioReale && it.arrivo == evento.fineReale }
     }
 
     /**
-     * Applica la corsa scelta dall'utente nel pannello di conferma (di default quella suggerita
-     * da [calcolaSceltaConsigliata], ma può essere una qualunque tra quelle scaricate) come
-     * orario reale della tratta: diventa un'ancora manuale (vedi [sovrascriviEvento]). Tutte le
-     * corse scaricate restano comunque disponibili come orari fissi della tratta per eventuali
-     * ricalcoli successivi (es. dopo l'eliminazione di questa tratta come ancora).
+     * Applica la corsa scelta dall'utente (di default quella suggerita da
+     * [calcolaSceltaConsigliata], ma può essere una qualunque tra quelle scaricate) come orario
+     * reale di [trattaId]: la imposta come tratta selezionata di [templateSlotId] (se non lo era
+     * già — es. una tratta scelta nel confronto alternative) e come ancora manuale con l'orario
+     * esatto scelto (vedi [sovrascriviEvento]), così il ricalcolo non lo sovrascrive con un
+     * placeholder. Tutte le corse scaricate restano comunque disponibili come orari fissi della
+     * tratta per eventuali ricalcoli successivi (es. dopo l'eliminazione di questa tratta come ancora).
      */
     fun confermaOrarioReale(templateSlotId: String, trattaId: String, corse: List<CorsaScaricata>, corsaScelta: CorsaScaricata) {
         val s = _stato.value
+        val template = s.templateSelezionato ?: return
         val trattaEsistente = s.tratte[trattaId] ?: return
         val trattaArricchita = trattaEsistente.copy(orariFissi = trattaEsistente.orariFissi + corse.map { it.toOrarioFisso() })
-        _stato.value = s.copy(tratte = s.tratte + (trattaId to trattaArricchita))
+        val nuoviSlot = template.slots.map { if (it.id == templateSlotId) it.copy(trattaSelezionataId = trattaId) else it }
+        _stato.value = s.copy(
+            templateSelezionato = template.copy(slots = nuoviSlot),
+            tratte = s.tratte + (trattaId to trattaArricchita)
+        )
         sovrascriviEvento(templateSlotId, corsaScelta.partenza, corsaScelta.arrivo)
         _stato.value = _stato.value.copy(
             messaggio = "Orario aggiornato con la corsa reale delle ${corsaScelta.partenza.toStringHHmm()}"
@@ -331,13 +349,15 @@ class EsecuzioneViewModel(
 
     /**
      * Calcola gli eventi usando una mappa di tratte alternativa a quella in [_stato] (es. una
-     * tratta arricchita con orari scaricati, per una simulazione), senza modificare lo stato.
-     * Restituisce null se il calcolo non è possibile (nessun template, nessuna ancora, tratte
-     * mancanti, errore del motore) — usato per anteprime, es. [calcolaSceltaConsigliata].
+     * tratta arricchita con orari scaricati, per una simulazione) e, opzionalmente, un template
+     * alternativo (es. con una diversa tratta selezionata per uno slot, per simulare una scelta
+     * non ancora applicata) senza modificare lo stato. Restituisce null se il calcolo non è
+     * possibile (nessun template, nessuna ancora, tratte mancanti, errore del motore) — usato per
+     * anteprime, es. [calcolaSceltaConsigliata].
      */
-    private fun calcolaEventiConTratte(tratte: Map<String, Tratta>): List<EventoCalcolato>? {
+    private fun calcolaEventiConTratte(tratte: Map<String, Tratta>, templateSimulato: Template? = null): List<EventoCalcolato>? {
         val s = _stato.value
-        val template = s.templateSelezionato ?: return null
+        val template = templateSimulato ?: s.templateSelezionato ?: return null
         val slotsOrdinati = template.slotsOrdinati.filterNot { it.id in s.slotEsclusi }
         if (slotsOrdinati.isEmpty()) return null
         val slotsAncora = slotsOrdinati.withIndex().filter { it.value.ancora }
@@ -456,6 +476,10 @@ class EsecuzioneViewModel(
                 )
             }
             val idInseriti = writer.inserisciEventi(calendario, s.data, eventiDaScrivere)
+            if (idInseriti.isNotEmpty()) {
+                val esecuzioneId = UUID.randomUUID().toString()
+                viewModelScope.launch { esecuzioneCreataRepository.registra(esecuzioneId, idInseriti) }
+            }
             _stato.value = if (idInseriti.size == s.eventiCalcolati.size) {
                 s.copy(messaggio = "${idInseriti.size} eventi aggiunti al calendario ✓")
             } else {
@@ -471,6 +495,11 @@ object EsecuzioneViewModelFactory {
     fun get(): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            EsecuzioneViewModel(AppContainer.templateRepository, AppContainer.trattaRepository, AppContainer.impostazioniStore) as T
+            EsecuzioneViewModel(
+                AppContainer.templateRepository,
+                AppContainer.trattaRepository,
+                AppContainer.impostazioniStore,
+                AppContainer.esecuzioneCreataRepository
+            ) as T
     }
 }

@@ -56,6 +56,8 @@ fun RicercaOrariTreno(
     testoAzione: (CorsaScaricata) -> String,
     azioneAbilitata: (CorsaScaricata) -> Boolean,
     onAzione: (CorsaScaricata) -> Unit,
+    /** Chiamato con l'elenco completo ogni volta che una ricerca ha successo (anche vuoto): utile a chi deve conoscere tutti i risultati, non solo quello scelto (es. per evidenziare quello consigliato). */
+    onRisultati: (List<CorsaScaricata>) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val client = remember(vettore, credenzialiItalo) { clientOrariPer(vettore, credenzialiItalo) }
@@ -76,6 +78,7 @@ fun RicercaOrariTreno(
                 client.cercaCorse(daStazione, aStazione, data, oraRiferimento, limite)
             }
             risultati = corse
+            onRisultati(corse)
             if (corse.isEmpty()) errore = "Nessuna corsa trovata per questa data."
         } catch (e: Exception) {
             errore = "Impossibile scaricare gli orari: ${e.message ?: "errore di rete"}"

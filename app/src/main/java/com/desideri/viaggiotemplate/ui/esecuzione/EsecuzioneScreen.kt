@@ -226,6 +226,12 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                     onConfermaOrarioReale = { corse, scelta ->
                         viewModel.confermaOrarioReale(evento.templateSlotId, evento.tratta.id, corse, scelta)
                     },
+                    suggerisciSceltaPer = { trattaId, corse ->
+                        viewModel.calcolaSceltaConsigliata(evento.templateSlotId, trattaId, corse)
+                    },
+                    onSceltaCorsaReale = { trattaId, corse, scelta ->
+                        viewModel.confermaOrarioReale(evento.templateSlotId, trattaId, corse, scelta)
+                    },
                     onCambiaNotifica = { viewModel.aggiornaNotifica(evento.templateSlotId, it) },
                     onCambiaDescrizione = { viewModel.aggiornaDescrizione(evento.templateSlotId, it) },
                     onCambiaColore = { viewModel.aggiornaColoreEvento(evento.templateSlotId, it) },
@@ -618,6 +624,8 @@ private fun CardEvento(
     onElimina: () -> Unit,
     suggerisciScelta: (List<CorsaScaricata>) -> CorsaScaricata?,
     onConfermaOrarioReale: (corse: List<CorsaScaricata>, scelta: CorsaScaricata) -> Unit,
+    suggerisciSceltaPer: (trattaId: String, corse: List<CorsaScaricata>) -> CorsaScaricata?,
+    onSceltaCorsaReale: (trattaId: String, corse: List<CorsaScaricata>, scelta: CorsaScaricata) -> Unit,
     onCambiaNotifica: (Notifica) -> Unit,
     onCambiaDescrizione: (String) -> Unit,
     onCambiaColore: (Int?) -> Unit,
@@ -688,12 +696,15 @@ private fun CardEvento(
                 }
                 if (mostraConfrontoAlternative) {
                     DialogConfrontoAlternative(
-                        correnteNome = evento.tratta.nome,
-                        correnteInizio = evento.inizioReale,
-                        correnteFine = evento.fineReale,
-                        alternative = evento.alternative,
+                        evento = evento,
+                        vettoreScelto = vettoreScelto,
                         data = data,
-                        onScegli = { trattaId, inizio, fine ->
+                        suggerisciScelta = suggerisciSceltaPer,
+                        onSceltaCorsaReale = { trattaId, corse, scelta ->
+                            onSceltaCorsaReale(trattaId, corse, scelta)
+                            mostraConfrontoAlternative = false
+                        },
+                        onSceltaSemplice = { trattaId, inizio, fine ->
                             onScegliAlternativa(trattaId, inizio, fine)
                             mostraConfrontoAlternative = false
                         },
@@ -783,24 +794,26 @@ private fun CardEvento(
 }
 
 /**
- * Dialog di confronto tra la tratta scelta per un evento e le sue alternative (vedi [CardEvento]).
- * Per ogni alternativa TRENO il cui vettore ha un'integrazione orari reali (SBB/Trenitalia/Italo,
- * vedi [clientOrariPer]) interroga il servizio e mostra le corse vere disponibili invece
- * dell'orario solo calcolato; per le altre (bus, vettore ALTRO, nessuna integrazione) mostra
- * l'orario già calcolato dal motore. Scegliendo una riga qualsiasi si applica come nuova scelta.
+ * Dialog di confronto tra la tratta scelta per un evento e le sue alternative (vedi [CardEvento]),
+ * trattando la scelta attuale come una riga in più invece che come testo statico: anche lei, se
+ * il suo vettore ha un'integrazione orari reali (SBB/Trenitalia/Italo, vedi [clientOrariPer]),
+ * mostra la ricerca live delle corse vere — non solo l'orario già calcolato dal motore, che puo'
+ * essere un placeholder mai confermato con l'integrazione (vedi `EventoCalcolato.orarioDaConfermare`).
+ * Ogni riga con integrazione evidenzia la corsa che il motore sceglierebbe automaticamente (vedi
+ * [suggerisciScelta]/[EsecuzioneViewModel.calcolaSceltaConsigliata]); le righe senza integrazione
+ * (bus, vettore ALTRO senza scelta, nessuna integrazione) mostrano l'orario già calcolato dal
+ * motore, cliccabile solo per le alternative (la riga attuale non avrebbe alcun effetto).
  */
 @Composable
 private fun DialogConfrontoAlternative(
-    correnteNome: String,
-    correnteInizio: LocalTime,
-    correnteFine: LocalTime,
-    alternative: List<EventoCalcolato>,
+    evento: EventoCalcolato,
+    vettoreScelto: Vettore?,
     data: LocalDate,
-    onScegli: (trattaId: String, inizio: LocalTime, fine: LocalTime) -> Unit,
+    suggerisciScelta: (trattaId: String, corse: List<CorsaScaricata>) -> CorsaScaricata?,
+    onSceltaCorsaReale: (trattaId: String, corse: List<CorsaScaricata>, scelta: CorsaScaricata) -> Unit,
+    onSceltaSemplice: (trattaId: String, inizio: LocalTime, fine: LocalTime) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val credenzialiItalo = AppContainer.italoCredentialsStore.credenziali
-
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
             Column(
@@ -809,52 +822,96 @@ private fun DialogConfrontoAlternative(
             ) {
                 Text("Confronta alternative", style = MaterialTheme.typography.titleMedium)
 
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Attuale: $correnteNome", style = MaterialTheme.typography.labelMedium)
-                    Text("${correnteInizio.toStringHHmm()} → ${correnteFine.toStringHHmm()}", style = MaterialTheme.typography.bodyMedium)
-                }
+                RigaOpzioneConfronto(
+                    opzione = evento,
+                    etichetta = "Attuale: ${evento.tratta.nome}",
+                    eCorrente = true,
+                    vettoreScelto = vettoreScelto,
+                    data = data,
+                    suggerisciScelta = suggerisciScelta,
+                    onSceltaCorsaReale = onSceltaCorsaReale,
+                    onSceltaSemplice = onSceltaSemplice
+                )
 
-                alternative.forEach { alt ->
-                    val vettore = alt.tratta.vettore
-                    val client = vettore?.takeIf { alt.tratta.tipo == TipoTratta.TRENO }?.let { clientOrariPer(it, credenzialiItalo) }
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(alt.tratta.nome, style = MaterialTheme.typography.labelMedium)
-                        if (client != null && vettore != null) {
-                            Text(descrizioneFonteOrari(vettore), style = MaterialTheme.typography.bodySmall)
-                            RicercaOrariTreno(
-                                vettore = vettore,
-                                daStazione = alt.tratta.luogoPartenza,
-                                aStazione = alt.tratta.luogoArrivo,
-                                data = data,
-                                oraRiferimento = alt.inizioReale.minusHours(2),
-                                limite = 16,
-                                chiaveRicerca = alt.tratta.id,
-                                credenzialiItalo = credenzialiItalo,
-                                testoAzione = { "" },
-                                azioneAbilitata = { true },
-                                onAzione = { corsa -> onScegli(alt.tratta.id, corsa.partenza, corsa.arrivo) },
-                                modifier = Modifier.heightIn(max = 220.dp)
-                            )
-                        } else {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onScegli(alt.tratta.id, alt.inizioReale, alt.fineReale) }
-                                    .padding(vertical = 8.dp)
-                            ) {
-                                Text(
-                                    "${alt.inizioReale.toStringHHmm()} → ${alt.fineReale.toStringHHmm()}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                    }
+                evento.alternative.forEach { alt ->
+                    RigaOpzioneConfronto(
+                        opzione = alt,
+                        etichetta = alt.tratta.nome,
+                        eCorrente = false,
+                        vettoreScelto = vettoreScelto,
+                        data = data,
+                        suggerisciScelta = suggerisciScelta,
+                        onSceltaCorsaReale = onSceltaCorsaReale,
+                        onSceltaSemplice = onSceltaSemplice
+                    )
                 }
 
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss) { Text("Chiudi") }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Una riga del dialog di confronto (vedi [DialogConfrontoAlternative]): se [opzione] ha un
+ * vettore con integrazione orari reali cerca le corse vere ed evidenzia quella consigliata dal
+ * motore (["Consigliata"], via [suggerisciScelta]); altrimenti mostra il solo orario già
+ * calcolato, cliccabile per scegliere quella tratta se non e' [eCorrente] (sceglierla di nuovo
+ * non avrebbe alcun effetto).
+ */
+@Composable
+private fun RigaOpzioneConfronto(
+    opzione: EventoCalcolato,
+    etichetta: String,
+    eCorrente: Boolean,
+    vettoreScelto: Vettore?,
+    data: LocalDate,
+    suggerisciScelta: (trattaId: String, corse: List<CorsaScaricata>) -> CorsaScaricata?,
+    onSceltaCorsaReale: (trattaId: String, corse: List<CorsaScaricata>, scelta: CorsaScaricata) -> Unit,
+    onSceltaSemplice: (trattaId: String, inizio: LocalTime, fine: LocalTime) -> Unit
+) {
+    val vettoreTratta = opzione.tratta.vettore
+    val vettoreEffettivo = if (vettoreTratta == Vettore.ALTRO) vettoreScelto else vettoreTratta
+    val credenzialiItalo = AppContainer.italoCredentialsStore.credenziali
+    val client = vettoreEffettivo?.takeIf { opzione.tratta.tipo == TipoTratta.TRENO }?.let { clientOrariPer(it, credenzialiItalo) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(etichetta, style = MaterialTheme.typography.labelMedium)
+        if (client != null && vettoreEffettivo != null) {
+            var corseCaricate by remember(opzione.tratta.id) { mutableStateOf<List<CorsaScaricata>>(emptyList()) }
+            val consigliata = remember(opzione.tratta.id, corseCaricate) { suggerisciScelta(opzione.tratta.id, corseCaricate) }
+            Text(descrizioneFonteOrari(vettoreEffettivo), style = MaterialTheme.typography.bodySmall)
+            RicercaOrariTreno(
+                vettore = vettoreEffettivo,
+                daStazione = opzione.tratta.luogoPartenza,
+                aStazione = opzione.tratta.luogoArrivo,
+                data = data,
+                oraRiferimento = opzione.inizioReale.minusHours(2),
+                limite = 16,
+                chiaveRicerca = opzione.tratta.id,
+                credenzialiItalo = credenzialiItalo,
+                onRisultati = { corseCaricate = it },
+                testoAzione = { corsa -> if (corsa == consigliata) "Consigliata" else "" },
+                azioneAbilitata = { true },
+                onAzione = { corsa -> onSceltaCorsaReale(opzione.tratta.id, corseCaricate, corsa) },
+                modifier = Modifier.heightIn(max = 220.dp)
+            )
+        } else if (eCorrente) {
+            Text("${opzione.inizioReale.toStringHHmm()} → ${opzione.fineReale.toStringHHmm()}", style = MaterialTheme.typography.bodyMedium)
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSceltaSemplice(opzione.tratta.id, opzione.inizioReale, opzione.fineReale) }
+                    .padding(vertical = 8.dp)
+            ) {
+                Text(
+                    "${opzione.inizioReale.toStringHHmm()} → ${opzione.fineReale.toStringHHmm()}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }

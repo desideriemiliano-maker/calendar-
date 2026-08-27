@@ -4,8 +4,11 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.desideri.viaggiotemplate.data.local.dao.EsecuzioneCreataDao
 import com.desideri.viaggiotemplate.data.local.dao.TemplateDao
 import com.desideri.viaggiotemplate.data.local.dao.TrattaDao
+import com.desideri.viaggiotemplate.data.local.entities.EsecuzioneCreataEntity
+import com.desideri.viaggiotemplate.data.local.entities.EventoCreatoEntity
 import com.desideri.viaggiotemplate.data.local.entities.OpzioneOrarioEntity
 import com.desideri.viaggiotemplate.data.local.entities.OrarioFissoEntity
 import com.desideri.viaggiotemplate.data.local.entities.TemplateEntity
@@ -20,14 +23,17 @@ import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
         OrarioFissoEntity::class,
         TemplateEntity::class,
         TemplateSlotCandidatoEntity::class,
-        TemplateSlotEntity::class
+        TemplateSlotEntity::class,
+        EsecuzioneCreataEntity::class,
+        EventoCreatoEntity::class
     ],
-    version = 8,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trattaDao(): TrattaDao
     abstract fun templateDao(): TemplateDao
+    abstract fun esecuzioneCreataDao(): EsecuzioneCreataDao
 }
 
 /**
@@ -87,5 +93,35 @@ val MIGRATION_6_7: Migration = object : Migration(6, 7) {
 val MIGRATION_7_8: Migration = object : Migration(7, 8) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE template_slot ADD COLUMN notificaOverride TEXT")
+    }
+}
+
+val MIGRATION_8_9: Migration = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `esecuzione_creata` (
+                `id` TEXT NOT NULL,
+                `dataCreazione` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+    }
+}
+
+val MIGRATION_9_10: Migration = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `evento_creato_calendario` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                `esecuzioneId` TEXT NOT NULL,
+                `calendarEventId` INTEGER NOT NULL,
+                FOREIGN KEY(`esecuzioneId`) REFERENCES `esecuzione_creata`(`id`) ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_evento_creato_calendario_esecuzioneId` ON `evento_creato_calendario` (`esecuzioneId`)")
     }
 }
