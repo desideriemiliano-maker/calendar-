@@ -209,6 +209,7 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                     evento = evento,
                     data = stato.data,
                     eAncora = eAncora,
+                    fineEventoPrecedente = if (indice > 0) stato.eventiCalcolati[indice - 1].fineReale else null,
                     notifica = stato.notificheSelezionate[evento.templateSlotId] ?: Notifica.NESSUNA,
                     descrizione = stato.descrizioni[evento.templateSlotId] ?: "",
                     colore = stato.coloriSelezionati[evento.templateSlotId] ?: evento.tratta.colore,
@@ -281,16 +282,21 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
     }
 }
 
-/** Mostra il tempo di attesa tra l'arrivo di una tratta e la partenza della successiva. */
-@Composable
-private fun RigaAttesa(fine: LocalTime, inizio: LocalTime) {
+/** Formatta il tempo tra [fine] (arrivo della tratta precedente) e [inizio] (partenza di questa), es. "45min", "1h", "1h 20min". */
+private fun formattaAttesa(fine: LocalTime, inizio: LocalTime): String {
     var minuti = Duration.between(fine, inizio).toMinutes()
     if (minuti < 0) minuti += 24 * 60
-    val testo = "Attesa: " + when {
+    return when {
         minuti < 60 -> "${minuti}min"
         minuti % 60 == 0L -> "${minuti / 60}h"
         else -> "${minuti / 60}h ${minuti % 60}min"
     }
+}
+
+/** Mostra il tempo di attesa tra l'arrivo di una tratta e la partenza della successiva. */
+@Composable
+private fun RigaAttesa(fine: LocalTime, inizio: LocalTime) {
+    val testo = "Attesa: " + formattaAttesa(fine, inizio)
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.Center) {
         Text(testo, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -615,6 +621,7 @@ private fun CardEvento(
     evento: EventoCalcolato,
     data: LocalDate,
     eAncora: Boolean,
+    fineEventoPrecedente: LocalTime?,
     notifica: Notifica,
     descrizione: String,
     colore: Int?,
@@ -697,6 +704,7 @@ private fun CardEvento(
                 if (mostraConfrontoAlternative) {
                     DialogConfrontoAlternative(
                         evento = evento,
+                        fineEventoPrecedente = fineEventoPrecedente,
                         vettoreScelto = vettoreScelto,
                         data = data,
                         suggerisciScelta = suggerisciSceltaPer,
@@ -807,6 +815,7 @@ private fun CardEvento(
 @Composable
 private fun DialogConfrontoAlternative(
     evento: EventoCalcolato,
+    fineEventoPrecedente: LocalTime?,
     vettoreScelto: Vettore?,
     data: LocalDate,
     suggerisciScelta: (trattaId: String, corse: List<CorsaScaricata>) -> CorsaScaricata?,
@@ -826,6 +835,7 @@ private fun DialogConfrontoAlternative(
                     opzione = evento,
                     etichetta = "Attuale: ${evento.tratta.nome}",
                     eCorrente = true,
+                    fineEventoPrecedente = fineEventoPrecedente,
                     vettoreScelto = vettoreScelto,
                     data = data,
                     suggerisciScelta = suggerisciScelta,
@@ -838,6 +848,7 @@ private fun DialogConfrontoAlternative(
                         opzione = alt,
                         etichetta = alt.tratta.nome,
                         eCorrente = false,
+                        fineEventoPrecedente = fineEventoPrecedente,
                         vettoreScelto = vettoreScelto,
                         data = data,
                         suggerisciScelta = suggerisciScelta,
@@ -866,6 +877,7 @@ private fun RigaOpzioneConfronto(
     opzione: EventoCalcolato,
     etichetta: String,
     eCorrente: Boolean,
+    fineEventoPrecedente: LocalTime?,
     vettoreScelto: Vettore?,
     data: LocalDate,
     suggerisciScelta: (trattaId: String, corse: List<CorsaScaricata>) -> CorsaScaricata?,
@@ -894,14 +906,22 @@ private fun RigaOpzioneConfronto(
                 credenzialiItalo = credenzialiItalo,
                 onRisultati = { corseCaricate = it },
                 testoAzione = { corsa -> if (corsa == consigliata) "Consigliata" else "" },
+                sottotesto = fineEventoPrecedente?.let { fine -> { corsa: CorsaScaricata -> "Attesa: ${formattaAttesa(fine, corsa.partenza)}" } },
                 azioneAbilitata = { true },
                 onAzione = { corsa -> onSceltaCorsaReale(opzione.tratta.id, corseCaricate, corsa) },
                 modifier = Modifier.heightIn(max = 220.dp)
             )
         } else if (eCorrente) {
             Text("${opzione.inizioReale.toStringHHmm()} → ${opzione.fineReale.toStringHHmm()}", style = MaterialTheme.typography.bodyMedium)
+            fineEventoPrecedente?.let { fine ->
+                Text(
+                    "Attesa: ${formattaAttesa(fine, opzione.inizioReale)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         } else {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onSceltaSemplice(opzione.tratta.id, opzione.inizioReale, opzione.fineReale) }
@@ -912,6 +932,13 @@ private fun RigaOpzioneConfronto(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
+                fineEventoPrecedente?.let { fine ->
+                    Text(
+                        "Attesa: ${formattaAttesa(fine, opzione.inizioReale)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

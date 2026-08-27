@@ -2,6 +2,7 @@ package com.desideri.viaggiotemplate.ui.common
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -58,6 +59,8 @@ fun RicercaOrariTreno(
     onAzione: (CorsaScaricata) -> Unit,
     /** Chiamato con l'elenco completo ogni volta che una ricerca ha successo (anche vuoto): utile a chi deve conoscere tutti i risultati, non solo quello scelto (es. per evidenziare quello consigliato). */
     onRisultati: (List<CorsaScaricata>) -> Unit = {},
+    /** Riga secondaria opzionale sotto l'orario di ogni corsa (es. tempo di attesa rispetto a un evento precedente); null o testo vuoto = nessuna riga. */
+    sottotesto: ((CorsaScaricata) -> String?)? = null,
     modifier: Modifier = Modifier
 ) {
     val client = remember(vettore, credenzialiItalo) { clientOrariPer(vettore, credenzialiItalo) }
@@ -97,23 +100,27 @@ fun RicercaOrariTreno(
     LazyColumn(modifier = modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(risultati) { corsa ->
             val abilitata = azioneAbilitata(corsa)
-            Row(
+            val colore = if (abilitata) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(enabled = abilitata) { onAzione(corsa) }
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(vertical = 8.dp)
             ) {
-                val colore = if (abilitata) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                Text(
-                    "${corsa.partenza.toStringHHmm()} → ${corsa.arrivo.toStringHHmm()}" +
-                        if (corsa.etichetta.isNotBlank()) " (${corsa.etichetta})" else "",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colore
-                )
-                val etichettaAzione = testoAzione(corsa)
-                if (etichettaAzione.isNotBlank()) {
-                    Text(etichettaAzione, style = MaterialTheme.typography.bodySmall, color = colore)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(
+                        "${corsa.partenza.toStringHHmm()} → ${corsa.arrivo.toStringHHmm()}" +
+                            if (corsa.etichetta.isNotBlank()) " (${corsa.etichetta})" else "",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colore
+                    )
+                    val etichettaAzione = testoAzione(corsa)
+                    if (etichettaAzione.isNotBlank()) {
+                        Text(etichettaAzione, style = MaterialTheme.typography.bodySmall, color = colore)
+                    }
+                }
+                sottotesto?.invoke(corsa)?.takeIf { it.isNotBlank() }?.let { testo ->
+                    Text(testo, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
