@@ -1,5 +1,7 @@
 package com.desideri.viaggiotemplate.ui.navigation
 
+import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -9,6 +11,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -18,12 +21,14 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -54,10 +59,31 @@ private val sezioni = listOf(Sezione.EventiCreati, Sezione.Tratte, Sezione.Templ
 fun AppNavigation() {
     val navController = rememberNavController()
     val impostazioniViewModel: ImpostazioniViewModel = viewModel(factory = ImpostazioniViewModelFactory.get())
+    val activity = LocalContext.current as? Activity
 
     var menuEspanso by remember { mutableStateOf(false) }
     var mostraCalendario by remember { mutableStateOf(false) }
     var mostraVersioni by remember { mutableStateOf(false) }
+    var mostraConfermaUscita by remember { mutableStateOf(false) }
+
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentDestination = backStackEntry?.destination
+    val inHomeTab = currentDestination?.hierarchy?.any { it.route == Sezione.EventiCreati.route } == true
+
+    fun navigaASezione(sezione: Sezione) {
+        navController.navigate(sezione.route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    // Con la navigazione a tab non c'è una vera pila da svuotare: il back di sistema deve prima
+    // riportare alla tab Eventi creati (invece di uscire subito dall'app), e solo da lì chiedere
+    // conferma prima di chiudere.
+    BackHandler {
+        if (inHomeTab) mostraConfermaUscita = true else navigaASezione(Sezione.EventiCreati)
+    }
 
     Scaffold(
         topBar = {
@@ -84,20 +110,11 @@ fun AppNavigation() {
         },
         bottomBar = {
             NavigationBar {
-                val backStackEntry by navController.currentBackStackEntryAsState()
-                val currentDestination = backStackEntry?.destination
-
                 sezioni.forEach { sezione ->
                     val selezionata = currentDestination?.hierarchy?.any { it.route == sezione.route } == true
                     NavigationBarItem(
                         selected = selezionata,
-                        onClick = {
-                            navController.navigate(sezione.route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
+                        onClick = { navigaASezione(sezione) },
                         icon = {
                             val icona = when (sezione) {
                                 Sezione.Tratte -> Icons.Filled.DirectionsCar
@@ -130,5 +147,17 @@ fun AppNavigation() {
     }
     if (mostraVersioni) {
         DialogVersioni(onDismiss = { mostraVersioni = false })
+    }
+    if (mostraConfermaUscita) {
+        AlertDialog(
+            onDismissRequest = { mostraConfermaUscita = false },
+            title = { Text("Uscire da Calendario++?") },
+            confirmButton = {
+                TextButton(onClick = { activity?.finish() }) { Text("Esci") }
+            },
+            dismissButton = {
+                TextButton(onClick = { mostraConfermaUscita = false }) { Text("Annulla") }
+            }
+        )
     }
 }

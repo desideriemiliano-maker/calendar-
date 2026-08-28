@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.CalendarContract
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -79,6 +80,8 @@ fun EventiCreatiScreen() {
     val richiediPermesso = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { risultati ->
         permessoConcesso = risultati.values.all { it }
     }
+
+    BackHandler(enabled = stato.esecuzioneSelezionata != null) { viewModel.tornaAiRisultati() }
 
     Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
@@ -167,8 +170,15 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(risultati, key = { it.id }) { esecuzione ->
+                val coloreSfondo = esecuzione.templateColore?.let { Color(it) }
                 Card(
                     modifier = Modifier.fillMaxWidth(),
+                    colors = coloreSfondo?.let {
+                        CardDefaults.cardColors(
+                            containerColor = it,
+                            contentColor = if (it.luminance() > 0.5f) Color(0xFF1B1B1B) else Color.White
+                        )
+                    } ?: CardDefaults.cardColors(),
                     onClick = { viewModel.selezionaEsecuzione(context, esecuzione) }
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {

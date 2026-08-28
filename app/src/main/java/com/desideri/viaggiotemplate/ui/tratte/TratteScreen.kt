@@ -41,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
@@ -66,6 +67,8 @@ fun TratteScreen(viewModel: TratteViewModel = viewModel(factory = TratteViewMode
     val tratte by viewModel.tratte.collectAsState()
     var trattaInModifica by remember { mutableStateOf<Tratta?>(null) }
     var mostraEditor by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = mostraEditor) { mostraEditor = false }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),

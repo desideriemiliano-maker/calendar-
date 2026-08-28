@@ -1,5 +1,6 @@
 package com.desideri.viaggiotemplate.ui.template
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -72,6 +73,8 @@ fun TemplateScreen(viewModel: TemplateViewModel = viewModel(factory = TemplateVi
             mostraEditor = true
         }
     }
+
+    BackHandler(enabled = mostraEditor) { mostraEditor = false }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
