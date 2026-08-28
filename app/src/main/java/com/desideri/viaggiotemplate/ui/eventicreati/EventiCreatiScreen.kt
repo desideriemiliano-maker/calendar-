@@ -9,16 +9,23 @@ import android.provider.CalendarContract
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -61,10 +68,70 @@ import com.desideri.viaggiotemplate.ui.common.DialogSelettoreData
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+import java.time.temporal.IsoFields
+import kotlin.math.abs
 
 private val FORMATO_DATA: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 private val FORMATO_DATA_ORA: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
 private val FORMATO_ORA: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+/** Un gruppo di esecuzioni che cadono nella stessa settimana (ISO), con l'etichetta che ne descrive la distanza temporale da oggi. */
+private data class GruppoEsecuzioni(val etichetta: String, val esecuzioni: List<EsecuzioneCreata>)
+
+/** Raggruppa [risultati] (già filtrati/ordinati) per settimana ISO, preservandone l'ordine. */
+private fun raggruppaPerSettimana(risultati: List<EsecuzioneCreata>, oggi: LocalDate = LocalDate.now()): List<GruppoEsecuzioni> {
+    if (risultati.isEmpty()) return emptyList()
+
+    fun data(esecuzione: EsecuzioneCreata) = esecuzione.inizioPrimoEvento.atZone(ZoneId.systemDefault()).toLocalDate()
+    fun chiaveSettimana(data: LocalDate) = data.get(IsoFields.WEEK_BASED_YEAR) to data.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)
+
+    val gruppi = mutableListOf<MutableList<EsecuzioneCreata>>()
+    var chiaveCorrente: Pair<Int, Int>? = null
+    for (esecuzione in risultati) {
+        val chiave = chiaveSettimana(data(esecuzione))
+        if (chiave != chiaveCorrente) {
+            gruppi.add(mutableListOf())
+            chiaveCorrente = chiave
+        }
+        gruppi.last().add(esecuzione)
+    }
+
+    return gruppi.map { gruppo ->
+        val dataRiferimento = gruppo.map(::data).minByOrNull { abs(ChronoUnit.DAYS.between(oggi, it)) }!!
+        GruppoEsecuzioni(etichettaRelativa(dataRiferimento, oggi), gruppo)
+    }
+}
+
+/** Testo del tipo "Tra 2 settimane" / "3 giorni fa" che descrive la distanza di [riferimento] da [oggi], con l'unità (giorni/settimane/mesi) scelta in base alla grandezza dello scarto. */
+private fun etichettaRelativa(riferimento: LocalDate, oggi: LocalDate): String {
+    val giorni = ChronoUnit.DAYS.between(oggi, riferimento)
+    val giorniAssoluti = abs(giorni)
+    return when {
+        giorni == 0L -> "Oggi"
+        giorni == 1L -> "Domani"
+        giorni == -1L -> "Ieri"
+        giorniAssoluti < 7 -> if (giorni > 0) "Tra $giorniAssoluti giorni" else "$giorniAssoluti giorni fa"
+        giorniAssoluti < 35 -> {
+            val settimane = Math.round(giorniAssoluti / 7.0)
+            when {
+                settimane <= 1 && giorni > 0 -> "Tra 1 settimana"
+                settimane <= 1 -> "1 settimana fa"
+                giorni > 0 -> "Tra $settimane settimane"
+                else -> "$settimane settimane fa"
+            }
+        }
+        else -> {
+            val mesi = abs(ChronoUnit.MONTHS.between(oggi, riferimento)).coerceAtLeast(1)
+            when {
+                mesi <= 1 && giorni > 0 -> "Tra 1 mese"
+                mesi <= 1 -> "1 mese fa"
+                giorni > 0 -> "Tra $mesi mesi"
+                else -> "$mesi mesi fa"
+            }
+        }
+    }
+}
 
 @Composable
 fun EventiCreatiScreen() {
@@ -165,30 +232,34 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
             modifier = Modifier.padding(top = 16.dp)
         )
     } else {
+        val gruppi = remember(risultati) { raggruppaPerSettimana(risultati) }
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(risultati, key = { it.id }) { esecuzione ->
-                val coloreSfondo = esecuzione.templateColore?.let { Color(it) }
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = coloreSfondo?.let {
-                        CardDefaults.cardColors(
-                            containerColor = it,
-                            contentColor = if (it.luminance() > 0.5f) Color(0xFF1B1B1B) else Color.White
-                        )
-                    } ?: CardDefaults.cardColors(),
-                    onClick = { viewModel.selezionaEsecuzione(context, esecuzione) }
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            items(gruppi, key = { it.esecuzioni.first().id }) { gruppo ->
+                Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(3.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+                    )
+                    Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
                         Text(
-                            esecuzione.inizioPrimoEvento.atZone(ZoneId.systemDefault()).format(FORMATO_DATA_ORA) +
-                                (esecuzione.templateNome?.let { " ($it)" } ?: ""),
-                            modifier = Modifier.padding(12.dp).weight(1f)
+                            gruppo.etichetta,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 6.dp)
                         )
-                        IconButton(onClick = { esecuzioneDaEliminare = esecuzione }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Elimina evento creato")
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            gruppo.esecuzioni.forEach { esecuzione ->
+                                CardEsecuzioneCreata(
+                                    esecuzione = esecuzione,
+                                    onClick = { viewModel.selezionaEsecuzione(context, esecuzione) },
+                                    onElimina = { esecuzioneDaEliminare = esecuzione }
+                                )
+                            }
                         }
                     }
                 }
@@ -204,6 +275,32 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
             },
             onAnnulla = { esecuzioneDaEliminare = null }
         )
+    }
+}
+
+@Composable
+private fun CardEsecuzioneCreata(esecuzione: EsecuzioneCreata, onClick: () -> Unit, onElimina: () -> Unit) {
+    val coloreSfondo = esecuzione.templateColore?.let { Color(it) }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = coloreSfondo?.let {
+            CardDefaults.cardColors(
+                containerColor = it,
+                contentColor = if (it.luminance() > 0.5f) Color(0xFF1B1B1B) else Color.White
+            )
+        } ?: CardDefaults.cardColors(),
+        onClick = onClick
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                esecuzione.inizioPrimoEvento.atZone(ZoneId.systemDefault()).format(FORMATO_DATA_ORA) +
+                    (esecuzione.templateNome?.let { " ($it)" } ?: ""),
+                modifier = Modifier.padding(12.dp).weight(1f)
+            )
+            IconButton(onClick = onElimina) {
+                Icon(Icons.Filled.Delete, contentDescription = "Elimina evento creato")
+            }
+        }
     }
 }
 
