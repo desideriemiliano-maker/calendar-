@@ -484,7 +484,15 @@ class EsecuzioneViewModel(
                 // si è premuto il pulsante, che può non coincidere col giorno del viaggio.
                 val inizioPrimoEvento = s.data.atTime(s.eventiCalcolati.minOf { it.inizioBlocco })
                     .atZone(ZoneId.systemDefault()).toInstant()
-                viewModelScope.launch { esecuzioneCreataRepository.registra(esecuzioneId, idInseriti, inizioPrimoEvento) }
+                viewModelScope.launch {
+                    esecuzioneCreataRepository.registra(
+                        esecuzioneId,
+                        idInseriti,
+                        inizioPrimoEvento,
+                        s.templateSelezionato?.nome,
+                        s.templateSelezionato?.colore
+                    )
+                }
             }
             _stato.value = if (idInseriti.size == s.eventiCalcolati.size) {
                 s.copy(messaggio = "${idInseriti.size} eventi aggiunti al calendario ✓")

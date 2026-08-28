@@ -32,7 +32,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.desideri.viaggiotemplate.ui.esecuzione.EsecuzioneScreen
-import com.desideri.viaggiotemplate.ui.eventicreati.DialogEventiCreati
+import com.desideri.viaggiotemplate.ui.eventicreati.EventiCreatiScreen
 import com.desideri.viaggiotemplate.ui.impostazioni.DialogCalendario
 import com.desideri.viaggiotemplate.ui.impostazioni.DialogVersioni
 import com.desideri.viaggiotemplate.ui.impostazioni.ImpostazioniViewModel
@@ -44,9 +44,10 @@ private sealed class Sezione(val route: String, val titolo: String) {
     data object Tratte : Sezione("tratte", "Tratte")
     data object Template : Sezione("template", "Template")
     data object Esecuzione : Sezione("esecuzione", "Esegui")
+    data object EventiCreati : Sezione("eventi_creati", "Eventi creati")
 }
 
-private val sezioni = listOf(Sezione.Tratte, Sezione.Template, Sezione.Esecuzione)
+private val sezioni = listOf(Sezione.EventiCreati, Sezione.Tratte, Sezione.Template, Sezione.Esecuzione)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,7 +58,6 @@ fun AppNavigation() {
     var menuEspanso by remember { mutableStateOf(false) }
     var mostraCalendario by remember { mutableStateOf(false) }
     var mostraVersioni by remember { mutableStateOf(false) }
-    var mostraEventiCreati by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -72,11 +72,6 @@ fun AppNavigation() {
                             text = { Text("Calendario") },
                             leadingIcon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
                             onClick = { menuEspanso = false; mostraCalendario = true }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Eventi creati") },
-                            leadingIcon = { Icon(Icons.Filled.History, contentDescription = null) },
-                            onClick = { menuEspanso = false; mostraEventiCreati = true }
                         )
                         DropdownMenuItem(
                             text = { Text("Versioni") },
@@ -108,6 +103,7 @@ fun AppNavigation() {
                                 Sezione.Tratte -> Icons.Filled.DirectionsCar
                                 Sezione.Template -> Icons.Filled.ListAlt
                                 Sezione.Esecuzione -> Icons.Filled.Event
+                                Sezione.EventiCreati -> Icons.Filled.History
                             }
                             Icon(icona, contentDescription = sezione.titolo)
                         },
@@ -119,12 +115,13 @@ fun AppNavigation() {
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = Sezione.Tratte.route,
+            startDestination = Sezione.EventiCreati.route,
             modifier = androidx.compose.ui.Modifier.padding(padding)
         ) {
             composable(Sezione.Tratte.route) { TratteScreen() }
             composable(Sezione.Template.route) { TemplateScreen() }
             composable(Sezione.Esecuzione.route) { EsecuzioneScreen() }
+            composable(Sezione.EventiCreati.route) { EventiCreatiScreen() }
         }
     }
 
@@ -133,8 +130,5 @@ fun AppNavigation() {
     }
     if (mostraVersioni) {
         DialogVersioni(onDismiss = { mostraVersioni = false })
-    }
-    if (mostraEventiCreati) {
-        DialogEventiCreati(onDismiss = { mostraEventiCreati = false })
     }
 }

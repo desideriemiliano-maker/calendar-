@@ -24,7 +24,9 @@ data class EventoCreato(
     val inizio: ZonedDateTime,
     val fine: ZonedDateTime,
     val titolo: String,
-    val descrizione: String
+    val descrizione: String,
+    /** Colore effettivo mostrato dal calendario per questo evento (proprio o ereditato dal calendario), usato come fallback quando l'esecuzione non ha un colore di template salvato. */
+    val colore: Int?
 )
 
 /** Un calendario del dispositivo su cui l'app può scrivere eventi. */
@@ -161,7 +163,8 @@ class CalendarWriter(private val context: Context) {
             CalendarContract.Events.DTSTART,
             CalendarContract.Events.DTEND,
             CalendarContract.Events.DESCRIPTION,
-            CalendarContract.Events.EVENT_TIMEZONE
+            CalendarContract.Events.EVENT_TIMEZONE,
+            CalendarContract.Events.DISPLAY_COLOR
         )
         val selezione = "${CalendarContract.Events._ID} IN (${eventIds.joinToString(",") { "?" }})"
         val args = eventIds.map { it.toString() }.toTypedArray()
@@ -176,6 +179,7 @@ class CalendarWriter(private val context: Context) {
             val idxFine = cursor.getColumnIndexOrThrow(CalendarContract.Events.DTEND)
             val idxDescrizione = cursor.getColumnIndexOrThrow(CalendarContract.Events.DESCRIPTION)
             val idxFuso = cursor.getColumnIndexOrThrow(CalendarContract.Events.EVENT_TIMEZONE)
+            val idxColore = cursor.getColumnIndexOrThrow(CalendarContract.Events.DISPLAY_COLOR)
             while (cursor.moveToNext()) {
                 val fuso = cursor.getString(idxFuso)?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: ZoneId.systemDefault()
                 out += EventoCreato(
@@ -183,11 +187,24 @@ class CalendarWriter(private val context: Context) {
                     inizio = Instant.ofEpochMilli(cursor.getLong(idxInizio)).atZone(fuso),
                     fine = Instant.ofEpochMilli(cursor.getLong(idxFine)).atZone(fuso),
                     titolo = cursor.getString(idxTitolo) ?: "",
-                    descrizione = cursor.getString(idxDescrizione) ?: ""
+                    descrizione = cursor.getString(idxDescrizione) ?: "",
+                    colore = if (cursor.isNull(idxColore)) null else cursor.getInt(idxColore)
                 )
             }
         }
         return out.sortedBy { it.inizio }
+    }
+
+    /**
+     * Elimina dal Calendar Provider gli eventi con questi [eventIds]. Richiede il permesso
+     * runtime WRITE_CALENDAR. Eventi già eliminati dall'utente vengono semplicemente ignorati.
+     * Ritorna il numero di righe effettivamente eliminate.
+     */
+    fun eliminaEventi(eventIds: List<Long>): Int {
+        if (eventIds.isEmpty()) return 0
+        val selezione = "${CalendarContract.Events._ID} IN (${eventIds.joinToString(",") { "?" }})"
+        val args = eventIds.map { it.toString() }.toTypedArray()
+        return context.contentResolver.delete(CalendarContract.Events.CONTENT_URI, selezione, args)
     }
 
     /**

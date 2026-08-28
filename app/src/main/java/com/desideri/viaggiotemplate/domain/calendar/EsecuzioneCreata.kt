@@ -10,5 +10,7 @@ import java.time.Instant
  */
 data class EsecuzioneCreata(
     val id: String,
-    val inizioPrimoEvento: Instant
+    val inizioPrimoEvento: Instant,
+    val templateNome: String? = null,
+    val templateColore: Int? = null
 )

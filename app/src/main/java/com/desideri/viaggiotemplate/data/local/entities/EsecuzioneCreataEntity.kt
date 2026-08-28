@@ -16,5 +16,8 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "esecuzione_creata")
 data class EsecuzioneCreataEntity(
     @PrimaryKey val id: String,
-    @ColumnInfo(name = "dataCreazione") val inizioPrimoEvento: Long
+    @ColumnInfo(name = "dataCreazione") val inizioPrimoEvento: Long,
+    /** Nome e colore del Template usato, congelati al momento della scrittura: sopravvivono a una rinomina o eliminazione successiva del Template. */
+    val templateNome: String? = null,
+    val templateColore: Int? = null
 )

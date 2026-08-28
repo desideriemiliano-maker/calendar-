@@ -27,7 +27,7 @@ import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
         EsecuzioneCreataEntity::class,
         EventoCreatoEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -123,5 +123,12 @@ val MIGRATION_9_10: Migration = object : Migration(9, 10) {
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_evento_creato_calendario_esecuzioneId` ON `evento_creato_calendario` (`esecuzioneId`)")
+    }
+}
+
+val MIGRATION_10_11: Migration = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE esecuzione_creata ADD COLUMN templateNome TEXT")
+        db.execSQL("ALTER TABLE esecuzione_creata ADD COLUMN templateColore INTEGER")
     }
 }

@@ -23,6 +23,10 @@ interface EsecuzioneCreataDao {
     @Query("SELECT calendarEventId FROM evento_creato_calendario WHERE esecuzioneId = :esecuzioneId")
     suspend fun eventIdsPerEsecuzione(esecuzioneId: String): List<Long>
 
+    /** Elimina la registrazione locale dell'esecuzione: gli eventi collegati vengono rimossi a cascata (ON DELETE CASCADE). */
+    @Query("DELETE FROM esecuzione_creata WHERE id = :id")
+    suspend fun elimina(id: String)
+
     @Transaction
     suspend fun registraEsecuzione(esecuzione: EsecuzioneCreataEntity, eventi: List<EventoCreatoEntity>) {
         inserisci(esecuzione)
