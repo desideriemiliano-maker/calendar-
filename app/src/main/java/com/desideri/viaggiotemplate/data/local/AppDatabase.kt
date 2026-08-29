@@ -20,7 +20,7 @@ import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
 const val NOME_FILE_DATABASE = "viaggio-template.db"
 
 /** Versione corrente dello schema (== `PRAGMA user_version` scritto da Room): riusata dal ripristino di un backup Drive per verificare, prima di sostituire il database live, che il file scaricato sia dello schema atteso. */
-const val VERSIONE_SCHEMA_DATABASE = 11
+const val VERSIONE_SCHEMA_DATABASE = 12
 
 @Database(
     entities = [
@@ -136,5 +136,11 @@ val MIGRATION_10_11: Migration = object : Migration(10, 11) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE esecuzione_creata ADD COLUMN templateNome TEXT")
         db.execSQL("ALTER TABLE esecuzione_creata ADD COLUMN templateColore INTEGER")
+    }
+}
+
+val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE tratta ADD COLUMN indirizzoArrivo TEXT")
     }
 }

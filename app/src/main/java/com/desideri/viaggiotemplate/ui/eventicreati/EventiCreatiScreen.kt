@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Visibility
@@ -68,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
+import com.desideri.viaggiotemplate.domain.calendar.avviaNavigazioneAuto
 import com.desideri.viaggiotemplate.ui.common.DialogSelettoreData
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -412,7 +414,14 @@ private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: E
                     }
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text(evento.titolo, style = MaterialTheme.typography.bodyLarge)
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Text(evento.titolo, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                            evento.indirizzoNavigazione?.let { indirizzo ->
+                                IconButton(onClick = { avviaNavigazioneAuto(context, indirizzo) }) {
+                                    Icon(Icons.Filled.Directions, contentDescription = "Avvia navigazione verso $indirizzo")
+                                }
+                            }
+                        }
                         Text(
                             "${evento.inizio.format(FORMATO_ORA)} - ${evento.fine.format(FORMATO_ORA)}",
                             style = MaterialTheme.typography.bodySmall

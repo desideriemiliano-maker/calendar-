@@ -17,6 +17,8 @@ data class Tratta(
     val tipo: TipoTratta,
     val luogoPartenza: String,
     val luogoArrivo: String,
+    /** Indirizzo di arrivo per la navigazione (solo TipoTratta.AUTO): usato per l'icona "Avvia navigazione" nel dettaglio degli eventi creati. Opzionale: null se non compilato o se il tipo non è AUTO. */
+    val indirizzoArrivo: String? = null,
     val durataMinutiReale: Int,           // usato per AUTO/RIUNIONE; ignorato per TRENO (deriva dagli slot)
     val margineMinuti: Int,
     val arrotondaInizio: Arrotondamento = Arrotondamento.DIFETTO,

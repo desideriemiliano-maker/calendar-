@@ -64,6 +64,7 @@ fun TrattaEditorScreen(
     var tipo by remember { mutableStateOf(trattaEsistente?.tipo ?: TipoTratta.TRENO) }
     var luogoPartenza by remember { mutableStateOf(trattaEsistente?.luogoPartenza ?: "") }
     var luogoArrivo by remember { mutableStateOf(trattaEsistente?.luogoArrivo ?: "") }
+    var indirizzoArrivo by remember { mutableStateOf(trattaEsistente?.indirizzoArrivo ?: "") }
     var durataMinuti by remember { mutableStateOf((trattaEsistente?.durataMinutiReale ?: 15).toString()) }
     var margine by remember { mutableStateOf((trattaEsistente?.margineMinuti ?: Tratta.margineDefaultPerTipo(tipo)).toString()) }
     var arrotondaInizio by remember { mutableStateOf(trattaEsistente?.arrotondaInizio ?: Arrotondamento.DIFETTO) }
@@ -115,6 +116,15 @@ fun TrattaEditorScreen(
                     OutlinedTextField(
                         value = luogoArrivo, onValueChange = { luogoArrivo = it },
                         label = { Text("Luogo arrivo") }, modifier = Modifier.fillMaxWidth().weight(1f)
+                    )
+                }
+            }
+            if (tipo == TipoTratta.AUTO) {
+                item {
+                    OutlinedTextField(
+                        value = indirizzoArrivo, onValueChange = { indirizzoArrivo = it },
+                        label = { Text("Indirizzo arrivo per navigazione (opzionale)") },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
@@ -249,6 +259,7 @@ fun TrattaEditorScreen(
                         tipo = tipo,
                         luogoPartenza = luogoPartenza,
                         luogoArrivo = if (tipo == TipoTratta.RIUNIONE) luogoPartenza else luogoArrivo,
+                        indirizzoArrivo = if (tipo == TipoTratta.AUTO) indirizzoArrivo.ifBlank { null } else null,
                         durataMinutiReale = durataMinuti.toIntOrNull() ?: 0,
                         margineMinuti = margine.toIntOrNull() ?: 0,
                         arrotondaInizio = arrotondaInizio,

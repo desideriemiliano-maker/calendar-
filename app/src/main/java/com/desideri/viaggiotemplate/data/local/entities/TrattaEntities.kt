@@ -13,6 +13,8 @@ data class TrattaEntity(
     val tipo: String,                 // TipoTratta.name
     val luogoPartenza: String,
     val luogoArrivo: String,
+    /** Indirizzo di arrivo per la navigazione, solo per tratte AUTO; null altrimenti. */
+    val indirizzoArrivo: String? = null,
     val durataMinutiReale: Int,
     val margineMinuti: Int,
     val arrotondaInizio: String,       // Arrotondamento.name

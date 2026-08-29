@@ -26,7 +26,9 @@ data class EventoCreato(
     val titolo: String,
     val descrizione: String,
     /** Colore effettivo mostrato dal calendario per questo evento (proprio o ereditato dal calendario), usato come fallback quando l'esecuzione non ha un colore di template salvato. */
-    val colore: Int?
+    val colore: Int?,
+    /** EVENT_LOCATION, valorizzato solo per le tratte AUTO con indirizzo di arrivo (vedi Tratta.indirizzoArrivo): usato per l'icona "Avvia navigazione". Null per tutte le altre tratte. */
+    val indirizzoNavigazione: String?
 )
 
 /** Un calendario del dispositivo su cui l'app può scrivere eventi. */
@@ -121,6 +123,9 @@ class CalendarWriter(private val context: Context) {
             if (eventoDaScrivere.descrizione.isNotBlank()) {
                 put(CalendarContract.Events.DESCRIPTION, eventoDaScrivere.descrizione)
             }
+            evento.tratta.indirizzoArrivo?.takeIf { it.isNotBlank() }?.let {
+                put(CalendarContract.Events.EVENT_LOCATION, it)
+            }
             eventoDaScrivere.colore?.let { applicaColore(this, calendario, it) }
         }
         val uri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
@@ -164,7 +169,8 @@ class CalendarWriter(private val context: Context) {
             CalendarContract.Events.DTEND,
             CalendarContract.Events.DESCRIPTION,
             CalendarContract.Events.EVENT_TIMEZONE,
-            CalendarContract.Events.DISPLAY_COLOR
+            CalendarContract.Events.DISPLAY_COLOR,
+            CalendarContract.Events.EVENT_LOCATION
         )
         val selezione = "${CalendarContract.Events._ID} IN (${eventIds.joinToString(",") { "?" }})"
         val args = eventIds.map { it.toString() }.toTypedArray()
@@ -180,6 +186,7 @@ class CalendarWriter(private val context: Context) {
             val idxDescrizione = cursor.getColumnIndexOrThrow(CalendarContract.Events.DESCRIPTION)
             val idxFuso = cursor.getColumnIndexOrThrow(CalendarContract.Events.EVENT_TIMEZONE)
             val idxColore = cursor.getColumnIndexOrThrow(CalendarContract.Events.DISPLAY_COLOR)
+            val idxLocation = cursor.getColumnIndexOrThrow(CalendarContract.Events.EVENT_LOCATION)
             while (cursor.moveToNext()) {
                 val fuso = cursor.getString(idxFuso)?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: ZoneId.systemDefault()
                 out += EventoCreato(
@@ -188,7 +195,8 @@ class CalendarWriter(private val context: Context) {
                     fine = Instant.ofEpochMilli(cursor.getLong(idxFine)).atZone(fuso),
                     titolo = cursor.getString(idxTitolo) ?: "",
                     descrizione = cursor.getString(idxDescrizione) ?: "",
-                    colore = if (cursor.isNull(idxColore)) null else cursor.getInt(idxColore)
+                    colore = if (cursor.isNull(idxColore)) null else cursor.getInt(idxColore),
+                    indirizzoNavigazione = cursor.getString(idxLocation)?.takeIf { it.isNotBlank() }
                 )
             }
         }
