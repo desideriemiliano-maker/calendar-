@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -206,10 +209,13 @@ private fun classificaMessaggio(messaggio: String): Pair<String?, String> {
     return prefisso to messaggio.substring(match.range.last + 1).trim()
 }
 
-private fun iconaPrefisso(prefisso: String?): String = when {
-    prefisso == null -> "•"
-    prefisso.equals("fix", ignoreCase = true) -> "🐛"
-    else -> "🔧"
+/** Icona ed etichetta da mostrare per il [prefisso] di un gruppo di commit. I prefissi noti (feat/fix/chore) hanno un nome e un'icona dedicati; gli altri (storico pre-convenzione, o eventuali refusi) mostrano il prefisso cosi' com'e', con l'icona generica della chiave inglese. */
+private fun iconaEEtichettaPrefisso(prefisso: String?): Pair<String, String> = when {
+    prefisso == null -> "•" to "Generale"
+    prefisso.equals("feat", ignoreCase = true) -> "⭐" to "Novità"
+    prefisso.equals("fix", ignoreCase = true) -> "🐛" to "Correzioni"
+    prefisso.equals("chore", ignoreCase = true) -> "🔧" to "Manutenzione"
+    else -> "🔧" to prefisso
 }
 
 @Composable
@@ -243,34 +249,57 @@ fun DialogVersioni(onDismiss: () -> Unit) {
                     val vociOrdinate = remember { CHANGELOG.sortedByDescending { it.versionCode } }
                     val gruppiPerData = remember(vociOrdinate) { vociOrdinate.groupBy { it.data } }
 
+                    // Solo la data piu' recente parte espansa, le altre sono collassate: si espandono
+                    // cliccando sulla loro intestazione.
+                    var dateEspanse by remember(gruppiPerData) {
+                        mutableStateOf(setOfNotNull(gruppiPerData.keys.firstOrNull()))
+                    }
+
                     // weight(fill = false): la lista prende solo lo spazio che le serve entro il
                     // limite del dialog, cosi' il pulsante "Chiudi" sottostante resta sempre visibile
                     // invece di essere spinto fuori dai bound quando lo storico e' lungo.
                     LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
                         gruppiPerData.forEach { (data, voci) ->
+                            val espansa = data in dateEspanse
                             item {
-                                Text(
-                                    etichettaData(data),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-                                )
-                            }
-
-                            val classificati = voci.map { classificaMessaggio(it.messaggio) }
-                            val perPrefisso = classificati.groupBy({ it.first }, { it.second })
-
-                            perPrefisso.forEach { (prefisso, messaggi) ->
-                                item {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            dateEspanse = if (espansa) dateEspanse - data else dateEspanse + data
+                                        }
+                                ) {
                                     Text(
-                                        "${iconaPrefisso(prefisso)} ${prefisso ?: "Generale"}",
-                                        style = MaterialTheme.typography.labelMedium,
+                                        etichettaData(data),
+                                        style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 2.dp)
+                                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).weight(1f)
+                                    )
+                                    Icon(
+                                        if (espansa) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                        contentDescription = if (espansa) "Riduci" else "Espandi"
                                     )
                                 }
-                                items(messaggi) { messaggio ->
-                                    Text("• $messaggio", modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
+                            }
+
+                            if (espansa) {
+                                val classificati = voci.map { classificaMessaggio(it.messaggio) }
+                                val perPrefisso = classificati.groupBy({ it.first }, { it.second })
+
+                                perPrefisso.forEach { (prefisso, messaggi) ->
+                                    item {
+                                        val (icona, etichetta) = iconaEEtichettaPrefisso(prefisso)
+                                        Text(
+                                            "$icona $etichetta",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 2.dp)
+                                        )
+                                    }
+                                    items(messaggi) { messaggio ->
+                                        Text("• $messaggio", modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
+                                    }
                                 }
                             }
                         }
