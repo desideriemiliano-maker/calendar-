@@ -131,6 +131,11 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // Google Sign-In / Authorization API, per il backup su Google Drive (scope drive.appdata,
+    // vedi GoogleDriveAutorizzatore): le chiamate REST vere e proprie sono fatte a mano
+    // (DriveAppDataClient) per non aggiungere le pesanti librerie google-api-client/-services-drive.
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
+
     // Test (unit, JVM puro - non richiedono emulatore)
     testImplementation("junit:junit:4.13.2")
 }

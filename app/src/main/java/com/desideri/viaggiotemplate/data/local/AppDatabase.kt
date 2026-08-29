@@ -16,6 +16,12 @@ import com.desideri.viaggiotemplate.data.local.entities.TemplateSlotCandidatoEnt
 import com.desideri.viaggiotemplate.data.local.entities.TemplateSlotEntity
 import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
 
+/** Nome del file .db sul filesystem del device: unica fonte di verità, riusato da [com.desideri.viaggiotemplate.ui.AppContainer] e dal backup/ripristino Drive per localizzare il file senza duplicare la stringa. */
+const val NOME_FILE_DATABASE = "viaggio-template.db"
+
+/** Versione corrente dello schema (== `PRAGMA user_version` scritto da Room): riusata dal ripristino di un backup Drive per verificare, prima di sostituire il database live, che il file scaricato sia dello schema atteso. */
+const val VERSIONE_SCHEMA_DATABASE = 11
+
 @Database(
     entities = [
         TrattaEntity::class,
@@ -27,7 +33,7 @@ import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
         EsecuzioneCreataEntity::class,
         EventoCreatoEntity::class
     ],
-    version = 11,
+    version = VERSIONE_SCHEMA_DATABASE,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

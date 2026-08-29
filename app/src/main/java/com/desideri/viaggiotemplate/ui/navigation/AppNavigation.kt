@@ -5,6 +5,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.History
@@ -36,6 +38,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.desideri.viaggiotemplate.ui.backup.BackupDriveHost
+import com.desideri.viaggiotemplate.ui.backup.BackupDriveViewModel
+import com.desideri.viaggiotemplate.ui.backup.BackupDriveViewModelFactory
 import com.desideri.viaggiotemplate.ui.esecuzione.EsecuzioneScreen
 import com.desideri.viaggiotemplate.ui.eventicreati.EventiCreatiScreen
 import com.desideri.viaggiotemplate.ui.impostazioni.DialogCalendario
@@ -59,6 +64,7 @@ private val sezioni = listOf(Sezione.EventiCreati, Sezione.Tratte, Sezione.Templ
 fun AppNavigation() {
     val navController = rememberNavController()
     val impostazioniViewModel: ImpostazioniViewModel = viewModel(factory = ImpostazioniViewModelFactory.get())
+    val backupDriveViewModel: BackupDriveViewModel = viewModel(factory = BackupDriveViewModelFactory.get())
     val activity = LocalContext.current as? Activity
 
     var menuEspanso by remember { mutableStateOf(false) }
@@ -104,6 +110,16 @@ fun AppNavigation() {
                             leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
                             onClick = { menuEspanso = false; mostraVersioni = true }
                         )
+                        DropdownMenuItem(
+                            text = { Text("Backup su Drive") },
+                            leadingIcon = { Icon(Icons.Filled.CloudUpload, contentDescription = null) },
+                            onClick = { menuEspanso = false; activity?.let { backupDriveViewModel.avviaBackup(it) } }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ripristina da Drive") },
+                            leadingIcon = { Icon(Icons.Filled.CloudDownload, contentDescription = null) },
+                            onClick = { menuEspanso = false; activity?.let { backupDriveViewModel.avviaRipristino(it) } }
+                        )
                     }
                 }
             )
@@ -148,6 +164,7 @@ fun AppNavigation() {
     if (mostraVersioni) {
         DialogVersioni(onDismiss = { mostraVersioni = false })
     }
+    BackupDriveHost(viewModel = backupDriveViewModel)
     if (mostraConfermaUscita) {
         AlertDialog(
             onDismissRequest = { mostraConfermaUscita = false },
