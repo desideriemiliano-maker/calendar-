@@ -9,7 +9,9 @@ import android.provider.CalendarContract
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +35,8 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -65,26 +69,31 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
 import com.desideri.viaggiotemplate.ui.common.DialogSelettoreData
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.time.temporal.IsoFields
+import java.time.temporal.TemporalAdjusters
 import kotlin.math.abs
 
 private val FORMATO_DATA: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 private val FORMATO_DATA_ORA: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
 private val FORMATO_ORA: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
-/** Un gruppo di esecuzioni che cadono nella stessa settimana (ISO), con l'etichetta che ne descrive la distanza temporale da oggi. */
-private data class GruppoEsecuzioni(val etichetta: String, val esecuzioni: List<EsecuzioneCreata>)
+/** Un gruppo di esecuzioni che cadono nella stessa settimana (lunedì-domenica), con l'etichetta che ne descrive la distanza temporale da oggi. [chiave] identifica stabilmente il gruppo (anno-settimana), utile per ricordare se è espanso o ridotto. */
+private data class GruppoEsecuzioni(val chiave: String, val etichetta: String, val esecuzioni: List<EsecuzioneCreata>)
 
-/** Raggruppa [risultati] (già filtrati/ordinati) per settimana ISO, preservandone l'ordine. */
+/** Raggruppa [risultati] (già filtrati/ordinati) per settimana lunedì-domenica (ISO), preservandone l'ordine. */
 private fun raggruppaPerSettimana(risultati: List<EsecuzioneCreata>, oggi: LocalDate = LocalDate.now()): List<GruppoEsecuzioni> {
     if (risultati.isEmpty()) return emptyList()
 
     fun data(esecuzione: EsecuzioneCreata) = esecuzione.inizioPrimoEvento.atZone(ZoneId.systemDefault()).toLocalDate()
+    fun inizioSettimana(data: LocalDate) = data.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
     fun chiaveSettimana(data: LocalDate) = data.get(IsoFields.WEEK_BASED_YEAR) to data.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)
+
+    val inizioSettimanaOggi = inizioSettimana(oggi)
 
     val gruppi = mutableListOf<MutableList<EsecuzioneCreata>>()
     var chiaveCorrente: Pair<Int, Int>? = null
@@ -98,35 +107,27 @@ private fun raggruppaPerSettimana(risultati: List<EsecuzioneCreata>, oggi: Local
     }
 
     return gruppi.map { gruppo ->
-        val dataRiferimento = gruppo.map(::data).minByOrNull { abs(ChronoUnit.DAYS.between(oggi, it)) }!!
-        GruppoEsecuzioni(etichettaRelativa(dataRiferimento, oggi), gruppo)
+        val inizioSettimanaGruppo = inizioSettimana(data(gruppo.first()))
+        val chiave = chiaveSettimana(inizioSettimanaGruppo)
+        GruppoEsecuzioni("${chiave.first}-${chiave.second}", etichettaSettimana(inizioSettimanaGruppo, inizioSettimanaOggi), gruppo)
     }
 }
 
-/** Testo del tipo "Tra 2 settimane" / "3 giorni fa" che descrive la distanza di [riferimento] da [oggi], con l'unità (giorni/settimane/mesi) scelta in base alla grandezza dello scarto. */
-private fun etichettaRelativa(riferimento: LocalDate, oggi: LocalDate): String {
-    val giorni = ChronoUnit.DAYS.between(oggi, riferimento)
-    val giorniAssoluti = abs(giorni)
+/** Testo del tipo "La prossima settimana" / "Tra 3 settimane" / "2 mesi fa" che descrive la settimana che inizia il [inizioSettimanaGruppo] rispetto alla settimana corrente ([inizioSettimanaOggi]), con l'unità (settimane/mesi) scelta in base alla grandezza dello scarto. */
+private fun etichettaSettimana(inizioSettimanaGruppo: LocalDate, inizioSettimanaOggi: LocalDate): String {
+    val settimane = ChronoUnit.WEEKS.between(inizioSettimanaOggi, inizioSettimanaGruppo)
+    val settimaneAssolute = abs(settimane)
     return when {
-        giorni == 0L -> "Oggi"
-        giorni == 1L -> "Domani"
-        giorni == -1L -> "Ieri"
-        giorniAssoluti < 7 -> if (giorni > 0) "Tra $giorniAssoluti giorni" else "$giorniAssoluti giorni fa"
-        giorniAssoluti < 35 -> {
-            val settimane = Math.round(giorniAssoluti / 7.0)
-            when {
-                settimane <= 1 && giorni > 0 -> "Tra 1 settimana"
-                settimane <= 1 -> "1 settimana fa"
-                giorni > 0 -> "Tra $settimane settimane"
-                else -> "$settimane settimane fa"
-            }
-        }
+        settimane == 0L -> "Questa settimana"
+        settimane == 1L -> "La prossima settimana"
+        settimane == -1L -> "La settimana scorsa"
+        settimaneAssolute < 5 -> if (settimane > 0) "Tra $settimaneAssolute settimane" else "$settimaneAssolute settimane fa"
         else -> {
-            val mesi = abs(ChronoUnit.MONTHS.between(oggi, riferimento)).coerceAtLeast(1)
+            val mesi = abs(ChronoUnit.MONTHS.between(inizioSettimanaOggi, inizioSettimanaGruppo)).coerceAtLeast(1)
             when {
-                mesi <= 1 && giorni > 0 -> "Tra 1 mese"
+                mesi <= 1 && settimane > 0 -> "Tra 1 mese"
                 mesi <= 1 -> "1 mese fa"
-                giorni > 0 -> "Tra $mesi mesi"
+                settimane > 0 -> "Tra $mesi mesi"
                 else -> "$mesi mesi fa"
             }
         }
@@ -233,11 +234,13 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
         )
     } else {
         val gruppi = remember(risultati) { raggruppaPerSettimana(risultati) }
+        var gruppiRidotti by remember { mutableStateOf(setOf<String>()) }
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(gruppi, key = { it.esecuzioni.first().id }) { gruppo ->
+            items(gruppi, key = { it.chiave }) { gruppo ->
+                val espanso = gruppo.chiave !in gruppiRidotti
                 Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                     Box(
                         modifier = Modifier
@@ -245,20 +248,35 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
                             .width(3.dp)
                             .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
                     )
-                    Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
-                        Text(
-                            gruppo.etichetta,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            gruppo.esecuzioni.forEach { esecuzione ->
-                                CardEsecuzioneCreata(
-                                    esecuzione = esecuzione,
-                                    onClick = { viewModel.selezionaEsecuzione(context, esecuzione) },
-                                    onElimina = { esecuzioneDaEliminare = esecuzione }
-                                )
+                    Column(modifier = Modifier.padding(start = 12.dp).weight(1f).animateContentSize()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clickable {
+                                    gruppiRidotti = if (espanso) gruppiRidotti + gruppo.chiave else gruppiRidotti - gruppo.chiave
+                                }
+                                .padding(bottom = if (espanso) 6.dp else 0.dp)
+                        ) {
+                            Text(
+                                gruppo.etichetta,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Icon(
+                                if (espanso) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                contentDescription = if (espanso) "Riduci gruppo" else "Espandi gruppo",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        if (espanso) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                gruppo.esecuzioni.forEach { esecuzione ->
+                                    CardEsecuzioneCreata(
+                                        esecuzione = esecuzione,
+                                        onClick = { viewModel.selezionaEsecuzione(context, esecuzione) },
+                                        onElimina = { esecuzioneDaEliminare = esecuzione }
+                                    )
+                                }
                             }
                         }
                     }
