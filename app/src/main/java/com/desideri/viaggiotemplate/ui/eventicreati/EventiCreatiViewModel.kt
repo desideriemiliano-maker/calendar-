@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -32,8 +31,9 @@ data class StatoEventiCreati(
     val risultati: List<EsecuzioneCreata>
         get() = esecuzioni
             .filter { esecuzione ->
-                (filtroData == null || esecuzione.inizioPrimoEvento.atZone(ZoneId.systemDefault()).toLocalDate() == filtroData) &&
-                    (mostraPassati || esecuzione.inizioPrimoEvento.isAfter(Instant.now()))
+                val dataEsecuzione = esecuzione.inizioPrimoEvento.atZone(ZoneId.systemDefault()).toLocalDate()
+                (filtroData == null || dataEsecuzione == filtroData) &&
+                    (mostraPassati || !dataEsecuzione.isBefore(LocalDate.now()))
             }
             .let { lista -> if (ordineAscendente) lista.sortedBy { it.inizioPrimoEvento } else lista.sortedByDescending { it.inizioPrimoEvento } }
 
