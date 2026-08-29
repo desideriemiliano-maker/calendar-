@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -216,10 +217,16 @@ fun DialogVersioni(onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
             Column(modifier = Modifier.padding(24.dp).heightIn(max = 480.dp)) {
-                Text(
-                    "Versione ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
-                    style = MaterialTheme.typography.titleMedium
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "Versione ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.Close, contentDescription = "Chiudi")
+                    }
+                }
                 Text(
                     "Storico delle modifiche, raggruppato per data.",
                     style = MaterialTheme.typography.bodySmall,
@@ -236,7 +243,10 @@ fun DialogVersioni(onDismiss: () -> Unit) {
                     val vociOrdinate = remember { CHANGELOG.sortedByDescending { it.versionCode } }
                     val gruppiPerData = remember(vociOrdinate) { vociOrdinate.groupBy { it.data } }
 
-                    LazyColumn {
+                    // weight(fill = false): la lista prende solo lo spazio che le serve entro il
+                    // limite del dialog, cosi' il pulsante "Chiudi" sottostante resta sempre visibile
+                    // invece di essere spinto fuori dai bound quando lo storico e' lungo.
+                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
                         gruppiPerData.forEach { (data, voci) ->
                             item {
                                 Text(
