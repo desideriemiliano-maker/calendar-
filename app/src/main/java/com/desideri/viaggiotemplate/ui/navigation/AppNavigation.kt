@@ -17,6 +17,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
@@ -110,6 +111,7 @@ fun AppNavigation() {
                             leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
                             onClick = { menuEspanso = false; mostraVersioni = true }
                         )
+                        HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("Backup su Drive") },
                             leadingIcon = { Icon(Icons.Filled.CloudUpload, contentDescription = null) },
