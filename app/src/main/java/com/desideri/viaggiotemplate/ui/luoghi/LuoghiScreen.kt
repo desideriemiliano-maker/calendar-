@@ -15,14 +15,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -73,12 +76,36 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
                 padding = padding
             )
         } else {
+            var testoRicerca by remember { mutableStateOf("") }
+            val luoghiFiltrati = remember(luoghi, testoRicerca) {
+                luoghi.filter { luogo ->
+                    testoRicerca.isBlank() ||
+                        luogo.nome.contains(testoRicerca, ignoreCase = true) ||
+                        luogo.indirizzo?.contains(testoRicerca, ignoreCase = true) == true
+                }
+            }
+
             Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                OutlinedTextField(
+                    value = testoRicerca,
+                    onValueChange = { testoRicerca = it },
+                    label = { Text("Cerca") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (testoRicerca.isNotEmpty()) {
+                            IconButton(onClick = { testoRicerca = "" }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Cancella ricerca")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+                )
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(luoghi, key = { it.id }) { luogo ->
+                    items(luoghiFiltrati, key = { it.id }) { luogo ->
                         Card(
                             onClick = { luogoInModifica = luogo; mostraEditor = true },
                             modifier = Modifier.fillMaxWidth()

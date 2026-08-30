@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -116,12 +117,35 @@ private fun ListaTemplate(
     onSposta: (TemplateEntity, Int) -> Unit
 ) {
     var templateDaEliminare by remember { mutableStateOf<TemplateEntity?>(null) }
+    var testoRicerca by remember { mutableStateOf("") }
+    // Filtra solo sul nome: la lista lavora su TemplateEntity, la proiezione leggera senza slot/tratte
+    // usata apposta per non caricare ogni template per intero solo per mostrare l'elenco; includere
+    // tratte/luoghi degli slot nel filtro richiederebbe caricare ogni Template completo qui.
+    val templateFiltrati = remember(templateEntities, testoRicerca) {
+        templateEntities.filter { testoRicerca.isBlank() || it.nome.contains(testoRicerca, ignoreCase = true) }
+    }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        itemsIndexed(templateEntities, key = { _, entity -> entity.id }) { indice, entity ->
+    Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        OutlinedTextField(
+            value = testoRicerca,
+            onValueChange = { testoRicerca = it },
+            label = { Text("Cerca") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = {
+                if (testoRicerca.isNotEmpty()) {
+                    IconButton(onClick = { testoRicerca = "" }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Cancella ricerca")
+                    }
+                }
+            },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+        itemsIndexed(templateFiltrati, key = { _, entity -> entity.id }) { indice, entity ->
             Card(
                 onClick = { onModifica(entity) },
                 modifier = Modifier.fillMaxWidth(),
@@ -143,7 +167,7 @@ private fun ListaTemplate(
                     IconButton(onClick = { onSposta(entity, -1) }, enabled = indice > 0) {
                         Icon(Icons.Filled.ArrowUpward, contentDescription = "Sposta su")
                     }
-                    IconButton(onClick = { onSposta(entity, 1) }, enabled = indice < templateEntities.size - 1) {
+                    IconButton(onClick = { onSposta(entity, 1) }, enabled = indice < templateFiltrati.size - 1) {
                         Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
                     }
                     IconButton(onClick = { templateDaEliminare = entity }) {
@@ -151,6 +175,7 @@ private fun ListaTemplate(
                     }
                 }
             }
+        }
         }
     }
 
