@@ -58,7 +58,7 @@ private sealed class Sezione(val route: String, val titolo: String) {
     data object Luoghi : Sezione("luoghi", "Luoghi")
     data object Template : Sezione("template", "Template")
     data object Esecuzione : Sezione("esecuzione", "Esegui")
-    data object EventiCreati : Sezione("eventi_creati", "Eventi creati")
+    data object EventiCreati : Sezione("eventi_creati", "Eventi")
 }
 
 private val sezioni = listOf(Sezione.EventiCreati, Sezione.Luoghi, Sezione.Tratte, Sezione.Template, Sezione.Esecuzione)
