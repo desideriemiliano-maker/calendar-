@@ -109,11 +109,6 @@ fun AppNavigation() {
                             leadingIcon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
                             onClick = { menuEspanso = false; mostraCalendario = true }
                         )
-                        DropdownMenuItem(
-                            text = { Text("Versioni") },
-                            leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
-                            onClick = { menuEspanso = false; mostraVersioni = true }
-                        )
                         HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("Backup su Drive") },
@@ -124,6 +119,12 @@ fun AppNavigation() {
                             text = { Text("Ripristina da Drive") },
                             leadingIcon = { Icon(Icons.Filled.CloudDownload, contentDescription = null) },
                             onClick = { menuEspanso = false; activity?.let { backupDriveViewModel.avviaRipristino(it) } }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Versioni") },
+                            leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
+                            onClick = { menuEspanso = false; mostraVersioni = true }
                         )
                     }
                 }
