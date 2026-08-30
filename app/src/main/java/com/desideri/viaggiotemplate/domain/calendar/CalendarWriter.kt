@@ -31,6 +31,22 @@ data class EventoCreato(
     val indirizzoNavigazione: String?
 )
 
+/**
+ * Esito di [CalendarWriter.eliminaEventi]: abbastanza dettaglio da distinguere se è bastata la
+ * delete batch o è servito il fallback per singolo evento, e quali id restano comunque non
+ * cancellati — usato per decidere se toccare la registrazione locale e per capire, sul
+ * dispositivo reale, quale dei due meccanismi il Calendar Provider onora davvero.
+ */
+data class RisultatoEliminazioneEventi(
+    val idsRichiesti: Int,
+    val cancellatiBatch: Int,
+    val fallbackTentato: Boolean,
+    val cancellatiFallback: Int,
+    val idsNonCancellati: List<Long>
+) {
+    val completato: Boolean get() = idsNonCancellati.isEmpty()
+}
+
 /** Un calendario del dispositivo su cui l'app può scrivere eventi. */
 data class CalendarioDisponibile(
     val id: Long,
@@ -205,14 +221,54 @@ class CalendarWriter(private val context: Context) {
 
     /**
      * Elimina dal Calendar Provider gli eventi con questi [eventIds]. Richiede il permesso
-     * runtime WRITE_CALENDAR. Eventi già eliminati dall'utente vengono semplicemente ignorati.
-     * Ritorna il numero di righe effettivamente eliminate.
+     * runtime WRITE_CALENDAR. Prova prima un'unica delete batch (selection "_id IN (...)"): se
+     * cancella meno righe del previsto, riprova id per id con `ContentUris.withAppendedId` — il
+     * Calendar Provider può comportarsi diversamente tra i due meccanismi a seconda di
+     * device/account/calendario, e il fallback recupera i casi in cui solo uno dei due funziona
+     * davvero. Eventi già eliminati dall'utente vengono semplicemente ignorati (già cancellati).
      */
-    fun eliminaEventi(eventIds: List<Long>): Int {
-        if (eventIds.isEmpty()) return 0
+    fun eliminaEventi(eventIds: List<Long>): RisultatoEliminazioneEventi {
+        if (eventIds.isEmpty()) {
+            return RisultatoEliminazioneEventi(0, 0, fallbackTentato = false, cancellatiFallback = 0, idsNonCancellati = emptyList())
+        }
+
         val selezione = "${CalendarContract.Events._ID} IN (${eventIds.joinToString(",") { "?" }})"
         val args = eventIds.map { it.toString() }.toTypedArray()
-        return context.contentResolver.delete(CalendarContract.Events.CONTENT_URI, selezione, args)
+        val cancellatiBatch = context.contentResolver.delete(CalendarContract.Events.CONTENT_URI, selezione, args)
+
+        if (cancellatiBatch >= eventIds.size) {
+            return RisultatoEliminazioneEventi(eventIds.size, cancellatiBatch, fallbackTentato = false, cancellatiFallback = 0, idsNonCancellati = emptyList())
+        }
+
+        val idsRimasti = idPresenti(eventIds)
+        var cancellatiFallback = 0
+        val idsNonCancellati = mutableListOf<Long>()
+        for (id in idsRimasti) {
+            val righe = context.contentResolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, id), null, null)
+            if (righe > 0) cancellatiFallback++ else idsNonCancellati += id
+        }
+
+        return RisultatoEliminazioneEventi(
+            idsRichiesti = eventIds.size,
+            cancellatiBatch = cancellatiBatch,
+            fallbackTentato = true,
+            cancellatiFallback = cancellatiFallback,
+            idsNonCancellati = idsNonCancellati
+        )
+    }
+
+    /** Tra [eventIds], quelli ancora presenti sul Calendar Provider dopo la delete batch (non cancellati nemmeno "soft"). */
+    private fun idPresenti(eventIds: List<Long>): List<Long> {
+        val selezione = "${CalendarContract.Events._ID} IN (${eventIds.joinToString(",") { "?" }})"
+        val args = eventIds.map { it.toString() }.toTypedArray()
+        val presenti = mutableListOf<Long>()
+        context.contentResolver.query(
+            CalendarContract.Events.CONTENT_URI, arrayOf(CalendarContract.Events._ID), selezione, args, null
+        )?.use { cursor ->
+            val idx = cursor.getColumnIndexOrThrow(CalendarContract.Events._ID)
+            while (cursor.moveToNext()) presenti += cursor.getLong(idx)
+        }
+        return presenti
     }
 
     /**

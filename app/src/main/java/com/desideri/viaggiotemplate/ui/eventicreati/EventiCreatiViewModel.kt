@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.desideri.viaggiotemplate.domain.calendar.CalendarWriter
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
 import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
+import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.repository.EsecuzioneCreataRepository
 import com.desideri.viaggiotemplate.ui.AppContainer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,7 +26,9 @@ data class StatoEventiCreati(
     val eventiSelezionati: List<EventoCreato> = emptyList(),
     val eventIdsSalvati: List<Long> = emptyList(),
     val caricamentoEventi: Boolean = false,
-    val messaggio: String? = null
+    val messaggio: String? = null,
+    /** Valorizzato quando l'eliminazione dal calendario non ha rimosso tutti gli eventi richiesti: la registrazione locale NON viene toccata in quel caso, per permettere di riprovare. */
+    val erroreEliminazioneCalendario: RisultatoEliminazioneEventi? = null
 ) {
     /** Esecuzioni che rispettano il filtro data (per data di inizio del primo evento, cioè del viaggio) ed [mostraPassati], ordinate per quella data secondo [ordineAscendente]. */
     val risultati: List<EsecuzioneCreata>
@@ -98,14 +101,24 @@ class EventiCreatiViewModel(
 
     /**
      * Elimina la registrazione locale dell'esecuzione. Se [eliminaAncheCalendario] è true, prova
-     * prima a eliminare anche i suoi eventi rimasti sul Calendar Provider (richiede WRITE_CALENDAR).
+     * prima a eliminare anche i suoi eventi rimasti sul Calendar Provider (richiede WRITE_CALENDAR):
+     * se anche dopo il fallback per singolo evento (vedi CalendarWriter.eliminaEventi) restano
+     * eventi non cancellati, la registrazione locale NON viene toccata — resta collegata agli
+     * stessi eventId, così l'utente può riprovare — e lo stato espone il dettaglio in
+     * [StatoEventiCreati.erroreEliminazioneCalendario] perché la UI mostri un errore esplicito.
      */
     fun eliminaEsecuzione(context: Context, esecuzione: EsecuzioneCreata, eliminaAncheCalendario: Boolean) {
         viewModelScope.launch {
             try {
                 if (eliminaAncheCalendario) {
                     val eventIds = repository.eventIdsPer(esecuzione.id)
-                    if (eventIds.isNotEmpty()) CalendarWriter(context).eliminaEventi(eventIds)
+                    if (eventIds.isNotEmpty()) {
+                        val esito = CalendarWriter(context).eliminaEventi(eventIds)
+                        if (!esito.completato) {
+                            _stato.value = _stato.value.copy(erroreEliminazioneCalendario = esito)
+                            return@launch
+                        }
+                    }
                 }
                 repository.elimina(esecuzione.id)
                 if (_stato.value.esecuzioneSelezionata?.id == esecuzione.id) {
@@ -115,6 +128,11 @@ class EventiCreatiViewModel(
                 _stato.value = _stato.value.copy(messaggio = "Errore nell'eliminazione: ${e.message}")
             }
         }
+    }
+
+    /** Chiude il dialog d'errore di [StatoEventiCreati.erroreEliminazioneCalendario]: la registrazione locale resta intatta, l'utente può riprovare dal pulsante elimina. */
+    fun chiudiErroreEliminazioneCalendario() {
+        _stato.value = _stato.value.copy(erroreEliminazioneCalendario = null)
     }
 }
 

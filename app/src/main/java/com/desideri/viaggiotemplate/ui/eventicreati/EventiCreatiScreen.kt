@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
+import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.domain.calendar.avviaNavigazioneAuto
 import com.desideri.viaggiotemplate.ui.common.DialogSelettoreData
 import java.time.DayOfWeek
@@ -170,6 +171,10 @@ fun EventiCreatiScreen() {
                 PannelloDettaglio(stato = stato, viewModel = viewModel, context = context)
             }
         }
+    }
+
+    stato.erroreEliminazioneCalendario?.let { errore ->
+        DialogErroreEliminazioneCalendario(errore = errore, onChiudi = { viewModel.chiudiErroreEliminazioneCalendario() })
     }
 }
 
@@ -347,6 +352,41 @@ private fun DialogConfermaEliminazioneEsecuzione(
         },
         confirmButton = { TextButton(onClick = { onConferma(eliminaAncheCalendario) }) { Text("Elimina") } },
         dismissButton = { TextButton(onClick = onAnnulla) { Text("Annulla") } }
+    )
+}
+
+/**
+ * Mostrato solo quando l'eliminazione dal calendario (batch + fallback per singolo evento, vedi
+ * CalendarWriter.eliminaEventi) non è riuscita a rimuovere tutti gli eventi richiesti: la
+ * registrazione locale non viene toccata in quel caso, quindi qui si spiega perché e si dà un
+ * dettaglio numerico utile a capire, sul dispositivo dell'utente, quale dei due meccanismi di
+ * cancellazione ha funzionato.
+ */
+@Composable
+private fun DialogErroreEliminazioneCalendario(errore: RisultatoEliminazioneEventi, onChiudi: () -> Unit) {
+    val nonCancellati = errore.idsNonCancellati.size
+    val dettaglioFallback = if (errore.fallbackTentato) {
+        "fallback per singolo evento riuscito su ${errore.cancellatiFallback} in più"
+    } else {
+        "fallback per singolo evento non necessario"
+    }
+    AlertDialog(
+        onDismissRequest = onChiudi,
+        title = { Text("Impossibile eliminare tutti gli eventi dal calendario") },
+        text = {
+            Column {
+                Text(
+                    "$nonCancellati su ${errore.idsRichiesti} eventi non sono stati rimossi dal calendario: " +
+                        "la registrazione locale non è stata eliminata, così puoi riprovare."
+                )
+                Text(
+                    "Dettagli: cancellati subito ${errore.cancellatiBatch}/${errore.idsRichiesti}, $dettaglioFallback.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onChiudi) { Text("OK") } }
     )
 }
 
