@@ -136,6 +136,9 @@ dependencies {
     // (DriveAppDataClient) per non aggiungere le pesanti librerie google-api-client/-services-drive.
     implementation("com.google.android.gms:play-services-auth:21.2.0")
 
+    // Posizione attuale per l'icona "usa posizione attuale" nell'editor di un Luogo (FusedLocationProviderClient).
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+
     // Test (unit, JVM puro - non richiedono emulatore)
     testImplementation("junit:junit:4.13.2")
 }

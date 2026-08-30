@@ -5,7 +5,9 @@ import android.content.ContentValues
 import android.content.Context
 import android.provider.CalendarContract
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
+import com.desideri.viaggiotemplate.domain.location.formattaCoordinateGps
 import com.desideri.viaggiotemplate.domain.model.Notifica
+import com.desideri.viaggiotemplate.domain.model.Tratta
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -27,7 +29,12 @@ data class EventoCreato(
     val descrizione: String,
     /** Colore effettivo mostrato dal calendario per questo evento (proprio o ereditato dal calendario), usato come fallback quando l'esecuzione non ha un colore di template salvato. */
     val colore: Int?,
-    /** EVENT_LOCATION, valorizzato solo per le tratte AUTO con indirizzo di arrivo (vedi Tratta.indirizzoArrivo): usato per l'icona "Avvia navigazione". Null per tutte le altre tratte. */
+    /**
+     * EVENT_LOCATION, valorizzato solo per le tratte AUTO con indirizzo o coordinate di arrivo
+     * (vedi [Tratta.indirizzoArrivo]/[Tratta.latitudineArrivo]): usato per l'icona "Avvia
+     * navigazione". Se il Luogo aveva coordinate GPS, questo testo è "Nome (GPS: lat, lng)" invece
+     * del solo indirizzo (vedi [CalendarWriter.locationEvento]). Null per tutte le altre tratte.
+     */
     val indirizzoNavigazione: String?
 )
 
@@ -139,7 +146,7 @@ class CalendarWriter(private val context: Context) {
             if (eventoDaScrivere.descrizione.isNotBlank()) {
                 put(CalendarContract.Events.DESCRIPTION, eventoDaScrivere.descrizione)
             }
-            evento.tratta.indirizzoArrivo?.takeIf { it.isNotBlank() }?.let {
+            locationEvento(evento.tratta)?.let {
                 put(CalendarContract.Events.EVENT_LOCATION, it)
             }
             eventoDaScrivere.colore?.let { applicaColore(this, calendario, it) }
@@ -158,6 +165,23 @@ class CalendarWriter(private val context: Context) {
         data: LocalDate,
         eventi: List<EventoDaScrivere>
     ): List<Long> = eventi.mapNotNull { inserisciEvento(calendario, data, it) }
+
+    /**
+     * EVENT_LOCATION per [tratta]: le coordinate GPS del Luogo di arrivo, quando impostate, hanno
+     * priorità sull'indirizzo testuale perché più precise per la navigazione. Per restare leggibile
+     * nel calendario (non solo "41.9028, 12.4964", che l'utente non riconosce a colpo d'occhio) il
+     * testo scritto è "Nome del luogo (GPS: lat, lng)": il nome resta a beneficio dell'utente, il
+     * marcatore "(GPS: lat, lng)" viene poi riestratto da [avviaNavigazioneAuto] per navigare sul
+     * punto esatto invece che cercare il testo per intero (vedi lì il motivo del prefisso "GPS:").
+     */
+    private fun locationEvento(tratta: Tratta): String? {
+        val lat = tratta.latitudineArrivo
+        val lng = tratta.longitudineArrivo
+        if (lat != null && lng != null) {
+            return "${tratta.luogoArrivo} (GPS: ${formattaCoordinateGps(lat, lng)})"
+        }
+        return tratta.indirizzoArrivo?.takeIf { it.isNotBlank() }
+    }
 
     private fun inserisciPromemoria(eventoId: Long, minutiPrima: Int) {
         val values = ContentValues().apply {

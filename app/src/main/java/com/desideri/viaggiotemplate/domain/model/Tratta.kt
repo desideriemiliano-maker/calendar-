@@ -25,6 +25,9 @@ data class Tratta(
     val luogoArrivo: String = "",
     /** Indirizzo del Luogo di arrivo per la navigazione (solo TipoTratta.AUTO): usato per l'icona "Avvia navigazione" nel dettaglio degli eventi creati. Risolto via join dal repository in lettura, null se non compilato o se il tipo non è AUTO; ignorato in scrittura. */
     val indirizzoArrivo: String? = null,
+    /** Coordinate GPS del Luogo di arrivo (solo TipoTratta.AUTO), stessa risoluzione/priorità di [indirizzoArrivo]: se presenti hanno priorità sull'indirizzo in [com.desideri.viaggiotemplate.domain.calendar.CalendarWriter]. Risolte via join dal repository in lettura; ignorate in scrittura. */
+    val latitudineArrivo: Double? = null,
+    val longitudineArrivo: Double? = null,
     val durataMinutiReale: Int,           // usato per AUTO/RIUNIONE; ignorato per TRENO (deriva dagli slot)
     val margineMinuti: Int,
     val arrotondaInizio: Arrotondamento = Arrotondamento.DIFETTO,

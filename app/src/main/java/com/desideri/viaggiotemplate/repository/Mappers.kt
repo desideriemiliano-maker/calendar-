@@ -15,9 +15,9 @@ import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import com.desideri.viaggiotemplate.domain.model.Vettore
 import java.time.LocalTime
 
-fun LuogoEntity.toDomain(): Luogo = Luogo(id = id, nome = nome, indirizzo = indirizzo)
+fun LuogoEntity.toDomain(): Luogo = Luogo(id = id, nome = nome, indirizzo = indirizzo, latitudine = latitudine, longitudine = longitudine)
 
-fun Luogo.toEntity(): LuogoEntity = LuogoEntity(id = id, nome = nome, indirizzo = indirizzo)
+fun Luogo.toEntity(): LuogoEntity = LuogoEntity(id = id, nome = nome, indirizzo = indirizzo, latitudine = latitudine, longitudine = longitudine)
 
 fun TrattaConOpzioni.toDomain(): Tratta = Tratta(
     id = tratta.id,
@@ -28,6 +28,8 @@ fun TrattaConOpzioni.toDomain(): Tratta = Tratta(
     luogoPartenza = luogoPartenza.nome,
     luogoArrivo = luogoArrivo.nome,
     indirizzoArrivo = if (tratta.tipo == TipoTratta.AUTO.name) luogoArrivo.indirizzo?.takeIf { it.isNotBlank() } else null,
+    latitudineArrivo = if (tratta.tipo == TipoTratta.AUTO.name) luogoArrivo.latitudine else null,
+    longitudineArrivo = if (tratta.tipo == TipoTratta.AUTO.name) luogoArrivo.longitudine else null,
     durataMinutiReale = tratta.durataMinutiReale,
     margineMinuti = tratta.margineMinuti,
     arrotondaInizio = Arrotondamento.valueOf(tratta.arrotondaInizio),

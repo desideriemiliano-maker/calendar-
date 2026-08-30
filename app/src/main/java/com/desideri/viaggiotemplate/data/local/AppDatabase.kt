@@ -25,7 +25,7 @@ import java.util.UUID
 const val NOME_FILE_DATABASE = "viaggio-template.db"
 
 /** Versione corrente dello schema (== `PRAGMA user_version` scritto da Room): riusata dal ripristino di un backup Drive per verificare, prima di sostituire il database live, che il file scaricato sia dello schema atteso. */
-const val VERSIONE_SCHEMA_DATABASE = 13
+const val VERSIONE_SCHEMA_DATABASE = 14
 
 @Database(
     entities = [
@@ -313,5 +313,13 @@ val MIGRATION_12_13: Migration = object : Migration(12, 13) {
         db.execSQL("ALTER TABLE `tratta_new` RENAME TO `tratta`")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_tratta_luogoPartenzaId` ON `tratta` (`luogoPartenzaId`)")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_tratta_luogoArrivoId` ON `tratta` (`luogoArrivoId`)")
+    }
+}
+
+/** Aggiunge coordinate GPS opzionali al Luogo, alternative all'indirizzo testuale (vedi [Luogo] e [com.desideri.viaggiotemplate.domain.calendar.CalendarWriter] per la priorità). */
+val MIGRATION_13_14: Migration = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE luogo ADD COLUMN latitudine REAL")
+        db.execSQL("ALTER TABLE luogo ADD COLUMN longitudine REAL")
     }
 }
