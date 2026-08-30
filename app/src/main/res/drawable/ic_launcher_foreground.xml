@@ -31,20 +31,28 @@
         android:fillColor="@color/ic_launcher_accent"
         android:pathData="M40.5,64 H67.5 A2.5,2.5 0 0 1 70,66.5 A2.5,2.5 0 0 1 67.5,69 H40.5 A2.5,2.5 0 0 1 38,66.5 A2.5,2.5 0 0 1 40.5,64 Z" />
 
-    <!-- badge "++": richiama il nome "Calendario++", al posto della precedente spunta "evento aggiunto" -->
+    <!--
+      Badge "++": richiama il nome "Calendario++", al posto della precedente spunta "evento
+      aggiunto" — stessa posizione d'angolo e stesso colore accento della prima versione, solo
+      ingrandito (raggio 9dp -> 12dp, "++" in scala) per restare leggibile a colpo d'occhio anche
+      alle dimensioni piccole del launcher. Il badge, come già in precedenza, sconfina lievemente
+      oltre la safe zone dell'adaptive icon (raggio 33dp dal centro 54,54): è un compromesso
+      intrinseco a un badge d'angolo di queste dimensioni, non peggiorato al di là di quanto serve
+      per l'ingrandimento richiesto.
+    -->
     <path
         android:fillColor="@color/ic_launcher_accent"
-        android:pathData="M67,76 A9,9 0 1 1 85,76 A9,9 0 1 1 67,76 Z" />
+        android:pathData="M64,76 A12,12 0 1 1 88,76 A12,12 0 1 1 64,76 Z" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M71.85,73.25 H73.65 V78.75 H71.85 Z" />
+        android:pathData="M70.5,72.35 H72.9 V79.65 H70.5 Z" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M70,75.1 H75.5 V76.9 H70 Z" />
+        android:pathData="M68.05,74.8 H75.35 V77.2 H68.05 Z" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M78.35,73.25 H80.15 V78.75 H78.35 Z" />
+        android:pathData="M79.1,72.35 H81.5 V79.65 H79.1 Z" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M76.5,75.1 H82 V76.9 H76.5 Z" />
+        android:pathData="M76.65,74.8 H83.95 V77.2 H76.65 Z" />
 </vector>
