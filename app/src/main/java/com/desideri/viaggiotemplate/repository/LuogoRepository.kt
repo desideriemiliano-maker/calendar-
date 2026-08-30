@@ -20,8 +20,14 @@ class LuogoRepository(private val luogoDao: LuogoDao, private val trattaDao: Tra
 
     suspend fun getLuogo(id: String): Luogo? = luogoDao.getPerId(id)?.toDomain()
 
+    /** Inserisce un luogo nuovo o aggiorna uno esistente (mai una REPLACE: vedi [LuogoDao.inserisci]). */
     suspend fun salva(luogo: Luogo) {
-        luogoDao.inserisci(luogo.toEntity())
+        val entity = luogo.toEntity()
+        if (luogoDao.getPerId(luogo.id) != null) {
+            luogoDao.aggiorna(entity)
+        } else {
+            luogoDao.inserisci(entity)
+        }
     }
 
     /** Blocca l'eliminazione se il luogo è ancora usato da almeno una tratta (come partenza o arrivo): l'utente deve prima spostare quelle tratte su un altro luogo. */
