@@ -71,6 +71,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
 import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.domain.calendar.avviaNavigazioneAuto
+import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogSelettoreData
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -233,6 +234,7 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
     }
 
     val risultati = stato.risultati
+    ContatoreElementi(mostrati = risultati.size, totale = stato.esecuzioni.size, modifier = Modifier.padding(vertical = 4.dp))
     if (risultati.isEmpty()) {
         Text(
             "Nessuna esecuzione trovata.",

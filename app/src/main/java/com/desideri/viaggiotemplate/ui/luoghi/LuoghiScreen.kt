@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.repository.RuoloLuogoInTratta
+import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 
 @Composable
@@ -101,6 +102,7 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
                 )
+                ContatoreElementi(mostrati = luoghiFiltrati.size, totale = luoghi.size)
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)

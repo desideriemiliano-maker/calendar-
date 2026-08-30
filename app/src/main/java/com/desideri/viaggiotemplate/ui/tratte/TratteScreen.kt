@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
+import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -195,6 +196,8 @@ private fun ListaTratte(
                 }
             }
         }
+
+        ContatoreElementi(mostrati = tratteFiltrate.size, totale = tratte.size)
 
         LazyColumn(
             modifier = Modifier
