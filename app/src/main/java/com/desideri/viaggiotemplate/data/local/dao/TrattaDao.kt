@@ -11,6 +11,9 @@ import com.desideri.viaggiotemplate.data.local.entities.TrattaConOpzioni
 import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
 import kotlinx.coroutines.flow.Flow
 
+/** Proiezione minima per elencare le tratte che bloccano l'eliminazione di un Luogo. */
+data class TrattaUsoLuogo(val nome: String, val luogoPartenzaId: String, val luogoArrivoId: String)
+
 @androidx.room.Dao
 interface TrattaDao {
 
@@ -43,9 +46,9 @@ interface TrattaDao {
     @Query("UPDATE tratta SET ordine = :ordine WHERE id = :id")
     suspend fun aggiornaOrdine(id: String, ordine: Int)
 
-    /** Numero di tratte che usano questo luogo come partenza o arrivo: usato per bloccare l'eliminazione di un Luogo ancora in uso. */
-    @Query("SELECT COUNT(*) FROM tratta WHERE luogoPartenzaId = :luogoId OR luogoArrivoId = :luogoId")
-    suspend fun contaPerLuogo(luogoId: String): Int
+    /** Tratte che usano questo luogo come partenza o arrivo: usato per bloccare l'eliminazione di un Luogo ancora in uso, mostrando all'utente quali tratte lo bloccano. */
+    @Query("SELECT nome, luogoPartenzaId, luogoArrivoId FROM tratta WHERE luogoPartenzaId = :luogoId OR luogoArrivoId = :luogoId ORDER BY ordine")
+    suspend fun getPerLuogo(luogoId: String): List<TrattaUsoLuogo>
 
     @Transaction
     suspend fun salvaConOpzioni(tratta: TrattaEntity, opzioni: List<OpzioneOrarioEntity>, orariFissi: List<OrarioFissoEntity>) {

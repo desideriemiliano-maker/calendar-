@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.model.Luogo
+import com.desideri.viaggiotemplate.repository.RuoloLuogoInTratta
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 
 @Composable
@@ -113,19 +114,28 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
         )
     }
 
-    erroreEliminazione?.let { numeroTratte ->
+    erroreEliminazione?.let { tratte ->
+        val massimoElencate = 10
+        val messaggio = buildString {
+            append(
+                if (tratte.size == 1) "È usato da 1 tratta:" else "È usato da ${tratte.size} tratte:"
+            )
+            tratte.take(massimoElencate).forEach { uso ->
+                val ruolo = when (uso.ruolo) {
+                    RuoloLuogoInTratta.PARTENZA -> "partenza"
+                    RuoloLuogoInTratta.ARRIVO -> "arrivo"
+                    RuoloLuogoInTratta.ENTRAMBI -> "partenza e arrivo"
+                }
+                append("\n• ${uso.nomeTratta} ($ruolo)")
+            }
+            val altre = tratte.size - massimoElencate
+            if (altre > 0) append("\n… e altre $altre")
+            append("\n\nRimuovilo prima da lì (o assegna a quelle tratte un altro luogo).")
+        }
         AlertDialog(
             onDismissRequest = viewModel::chiudiErroreEliminazione,
             title = { Text("Impossibile eliminare il luogo") },
-            text = {
-                Text(
-                    if (numeroTratte == 1) {
-                        "È usato da 1 tratta: rimuovilo prima da lì (o assegna a quella tratta un altro luogo)."
-                    } else {
-                        "È usato da $numeroTratte tratte: rimuovilo prima da lì (o assegna a quelle tratte un altro luogo)."
-                    }
-                )
-            },
+            text = { Text(messaggio) },
             confirmButton = { TextButton(onClick = viewModel::chiudiErroreEliminazione) { Text("OK") } }
         )
     }
