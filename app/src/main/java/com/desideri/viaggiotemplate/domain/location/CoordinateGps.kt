@@ -1,5 +1,7 @@
 package com.desideri.viaggiotemplate.domain.location
 
+import java.util.Locale
+
 /** Range valido per una latitudine WGS84. */
 val RANGE_LATITUDINE = -90.0..90.0
 
@@ -23,9 +25,15 @@ fun parseCoordinateGps(testo: String): Pair<Double, Double>? {
     return lat to lng
 }
 
-/** Formatta una coordinata con al più 6 decimali (~11 cm di precisione), senza zeri finali superflui. */
+/**
+ * Formatta una coordinata con al più 6 decimali (~11 cm di precisione), senza zeri finali
+ * superflui. Locale.ROOT è deliberato: il testo prodotto finisce nel marcatore "(GPS: lat, lng)"
+ * dell'EVENT_LOCATION, ri-analizzato da un punto decimale letterale — su un dispositivo con
+ * lingua italiana (o altra locale che usa la virgola come separatore decimale) "%.6f".format
+ * senza locale esplicita produrrebbe "45,464200" invece di "45.464200", rompendo quel parsing.
+ */
 fun formattaCoordinata(valore: Double): String {
-    val testo = "%.6f".format(valore).trimEnd('0').trimEnd('.')
+    val testo = "%.6f".format(Locale.ROOT, valore).trimEnd('0').trimEnd('.')
     return testo.ifEmpty { "0" }
 }
 
