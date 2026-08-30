@@ -30,7 +30,8 @@ sealed interface StatoBackupDrive {
     data class RichiediConsenso(val richiesta: androidx.activity.result.IntentSenderRequest) : StatoBackupDrive
     /** Backup trovato su Drive per una richiesta di ripristino: va mostrata data/dimensione e chiesta conferma esplicita prima di sovrascrivere i dati locali. */
     data class ConfermaRipristino(val backup: FileDrive) : StatoBackupDrive
-    data object BackupCompletato : StatoBackupDrive
+    /** Dimensione (byte) e istante del file .db appena caricato, per mostrarli nel dialog di conferma. */
+    data class BackupCompletato(val dimensioneByte: Long, val dataOra: java.time.Instant = java.time.Instant.now()) : StatoBackupDrive
     data object NessunBackupTrovato : StatoBackupDrive
     data class Errore(val messaggio: String) : StatoBackupDrive
 }
@@ -130,12 +131,13 @@ class BackupDriveViewModel(
 
     private suspend fun eseguiBackup(accessToken: String) {
         try {
-            withContext(Dispatchers.IO) {
+            val dimensioneByte = withContext(Dispatchers.IO) {
                 val bytes = databaseBackupManager.leggiBytesDatabasePerBackup()
                 val esistente = driveClient.trovaBackup(accessToken, NOME_FILE_BACKUP_DRIVE)
                 driveClient.carica(accessToken, esistente?.id, NOME_FILE_BACKUP_DRIVE, bytes)
+                bytes.size.toLong()
             }
-            _stato.value = StatoBackupDrive.BackupCompletato
+            _stato.value = StatoBackupDrive.BackupCompletato(dimensioneByte)
         } catch (e: BackupDriveException) {
             _stato.value = StatoBackupDrive.Errore(e.message ?: "Errore durante il backup.")
         }

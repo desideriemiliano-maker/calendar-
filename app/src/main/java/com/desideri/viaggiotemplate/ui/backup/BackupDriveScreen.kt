@@ -63,9 +63,10 @@ fun BackupDriveHost(viewModel: BackupDriveViewModel) {
             onConferma = viewModel::confermaRipristino,
             onAnnulla = viewModel::annulla
         )
-        StatoBackupDrive.BackupCompletato -> DialogInfoBackupDrive(
+        is StatoBackupDrive.BackupCompletato -> DialogInfoBackupDrive(
             titolo = "Backup completato",
-            messaggio = "Il database è stato caricato nell'area privata dell'app su Google Drive.",
+            messaggio = "Il database (${formattaDimensione(statoCorrente.dimensioneByte)}) è stato caricato " +
+                "nell'area privata dell'app su Google Drive alle ${FORMATO_DATA_ORA.format(statoCorrente.dataOra)}.",
             onChiudi = viewModel::annulla
         )
         StatoBackupDrive.NessunBackupTrovato -> DialogInfoBackupDrive(
