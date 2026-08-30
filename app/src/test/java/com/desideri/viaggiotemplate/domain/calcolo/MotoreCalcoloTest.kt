@@ -31,6 +31,7 @@ class MotoreCalcoloTest {
         step: Int = 10
     ) = Tratta(
         id = id, nome = id, tipo = TipoTratta.AUTO,
+        luogoPartenzaId = "lp-$id", luogoArrivoId = "la-$id",
         luogoPartenza = "P-$id", luogoArrivo = "A-$id",
         durataMinutiReale = durata, margineMinuti = margine,
         arrotondaInizio = arrotondaInizio, arrotondaFine = arrotondaFine,
@@ -44,6 +45,7 @@ class MotoreCalcoloTest {
         orariFissi: List<OrarioFisso> = emptyList()
     ) = Tratta(
         id = id, nome = id, tipo = TipoTratta.TRENO,
+        luogoPartenzaId = "lp-$id", luogoArrivoId = "la-$id",
         luogoPartenza = "P-$id", luogoArrivo = "A-$id",
         durataMinutiReale = 0, margineMinuti = margine,
         opzioniOrario = opzioni, orariFissi = orariFissi
@@ -504,6 +506,7 @@ class MotoreCalcoloTest {
     fun `tratta AEREO usa gli orari fissi come una tratta TRENO`() {
         val volo = Tratta(
             id = "volo", nome = "volo", tipo = TipoTratta.AEREO,
+            luogoPartenzaId = "lp-volo", luogoArrivoId = "la-volo",
             luogoPartenza = "Milano", luogoArrivo = "Roma",
             durataMinutiReale = 0, margineMinuti = 60,
             orariFissi = listOf(OrarioFisso(id = "f1", partenza = LocalTime.of(7, 30), arrivo = LocalTime.of(8, 45)))

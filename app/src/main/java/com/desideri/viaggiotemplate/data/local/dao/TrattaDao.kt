@@ -43,6 +43,10 @@ interface TrattaDao {
     @Query("UPDATE tratta SET ordine = :ordine WHERE id = :id")
     suspend fun aggiornaOrdine(id: String, ordine: Int)
 
+    /** Numero di tratte che usano questo luogo come partenza o arrivo: usato per bloccare l'eliminazione di un Luogo ancora in uso. */
+    @Query("SELECT COUNT(*) FROM tratta WHERE luogoPartenzaId = :luogoId OR luogoArrivoId = :luogoId")
+    suspend fun contaPerLuogo(luogoId: String): Int
+
     @Transaction
     suspend fun salvaConOpzioni(tratta: TrattaEntity, opzioni: List<OpzioneOrarioEntity>, orariFissi: List<OrarioFissoEntity>) {
         inserisci(tratta)

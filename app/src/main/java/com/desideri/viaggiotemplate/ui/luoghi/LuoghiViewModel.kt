@@ -1,0 +1,46 @@
+package com.desideri.viaggiotemplate.ui.luoghi
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.desideri.viaggiotemplate.domain.model.Luogo
+import com.desideri.viaggiotemplate.repository.EsitoEliminazioneLuogo
+import com.desideri.viaggiotemplate.repository.LuogoRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+class LuoghiViewModel(private val repository: LuogoRepository) : ViewModel() {
+
+    private val _luoghi = MutableStateFlow<List<Luogo>>(emptyList())
+    val luoghi: StateFlow<List<Luogo>> = _luoghi.asStateFlow()
+
+    private val _erroreEliminazione = MutableStateFlow<Int?>(null)
+    /** Numero di tratte che usano ancora il luogo di cui è stata tentata l'eliminazione, o null se nessun errore da mostrare. */
+    val erroreEliminazione: StateFlow<Int?> = _erroreEliminazione.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            repository.osservaLuoghi().collect { _luoghi.value = it }
+        }
+    }
+
+    fun salva(luogo: Luogo) {
+        viewModelScope.launch { repository.salva(luogo) }
+    }
+
+    fun elimina(luogo: Luogo) {
+        viewModelScope.launch {
+            when (val esito = repository.elimina(luogo)) {
+                is EsitoEliminazioneLuogo.BloccatoDaTratte -> _erroreEliminazione.value = esito.numeroTratte
+                EsitoEliminazioneLuogo.Eliminato -> Unit
+            }
+        }
+    }
+
+    fun chiudiErroreEliminazione() {
+        _erroreEliminazione.value = null
+    }
+
+    fun nuovoId(): String = repository.nuovoId()
+}

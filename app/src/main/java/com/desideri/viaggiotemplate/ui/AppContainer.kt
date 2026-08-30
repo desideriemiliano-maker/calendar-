@@ -16,9 +16,11 @@ import com.desideri.viaggiotemplate.data.local.MIGRATION_8_9
 import com.desideri.viaggiotemplate.data.local.MIGRATION_9_10
 import com.desideri.viaggiotemplate.data.local.MIGRATION_10_11
 import com.desideri.viaggiotemplate.data.local.MIGRATION_11_12
+import com.desideri.viaggiotemplate.data.local.MIGRATION_12_13
 import com.desideri.viaggiotemplate.data.local.NOME_FILE_DATABASE
 import com.desideri.viaggiotemplate.domain.backup.DatabaseBackupManager
 import com.desideri.viaggiotemplate.repository.EsecuzioneCreataRepository
+import com.desideri.viaggiotemplate.repository.LuogoRepository
 import com.desideri.viaggiotemplate.repository.TemplateRepository
 import com.desideri.viaggiotemplate.repository.TrattaRepository
 import java.io.File
@@ -31,6 +33,8 @@ object AppContainer {
     private lateinit var database: AppDatabase
 
     lateinit var trattaRepository: TrattaRepository
+        private set
+    lateinit var luogoRepository: LuogoRepository
         private set
     lateinit var templateRepository: TemplateRepository
         private set
@@ -47,6 +51,7 @@ object AppContainer {
         if (::database.isInitialized) return
         database = costruisciDatabase(context)
         trattaRepository = TrattaRepository(database.trattaDao())
+        luogoRepository = LuogoRepository(database.luogoDao(), database.trattaDao())
         templateRepository = TemplateRepository(database.templateDao())
         impostazioniStore = ImpostazioniStore(context)
         italoCredentialsStore = ItaloCredentialsStore(context)
@@ -59,7 +64,8 @@ object AppContainer {
             // Migrazioni esplicite: preservano i dati dell'utente ad ogni cambio di schema.
             .addMigrations(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12
+                MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
+                MIGRATION_12_13
             )
             .build()
 

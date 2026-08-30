@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -48,17 +49,19 @@ import com.desideri.viaggiotemplate.ui.impostazioni.DialogCalendario
 import com.desideri.viaggiotemplate.ui.impostazioni.DialogVersioni
 import com.desideri.viaggiotemplate.ui.impostazioni.ImpostazioniViewModel
 import com.desideri.viaggiotemplate.ui.impostazioni.ImpostazioniViewModelFactory
+import com.desideri.viaggiotemplate.ui.luoghi.LuoghiScreen
 import com.desideri.viaggiotemplate.ui.template.TemplateScreen
 import com.desideri.viaggiotemplate.ui.tratte.TratteScreen
 
 private sealed class Sezione(val route: String, val titolo: String) {
     data object Tratte : Sezione("tratte", "Tratte")
+    data object Luoghi : Sezione("luoghi", "Luoghi")
     data object Template : Sezione("template", "Template")
     data object Esecuzione : Sezione("esecuzione", "Esegui")
     data object EventiCreati : Sezione("eventi_creati", "Eventi creati")
 }
 
-private val sezioni = listOf(Sezione.EventiCreati, Sezione.Tratte, Sezione.Template, Sezione.Esecuzione)
+private val sezioni = listOf(Sezione.EventiCreati, Sezione.Luoghi, Sezione.Tratte, Sezione.Template, Sezione.Esecuzione)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -136,6 +139,7 @@ fun AppNavigation() {
                         icon = {
                             val icona = when (sezione) {
                                 Sezione.Tratte -> Icons.Filled.DirectionsCar
+                                Sezione.Luoghi -> Icons.Filled.Place
                                 Sezione.Template -> Icons.Filled.ListAlt
                                 Sezione.Esecuzione -> Icons.Filled.Event
                                 Sezione.EventiCreati -> Icons.Filled.History
@@ -154,6 +158,7 @@ fun AppNavigation() {
             modifier = androidx.compose.ui.Modifier.padding(padding)
         ) {
             composable(Sezione.Tratte.route) { TratteScreen() }
+            composable(Sezione.Luoghi.route) { LuoghiScreen() }
             composable(Sezione.Template.route) { TemplateScreen() }
             composable(Sezione.Esecuzione.route) { EsecuzioneScreen() }
             composable(Sezione.EventiCreati.route) { EventiCreatiScreen() }

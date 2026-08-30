@@ -15,9 +15,15 @@ data class Tratta(
     val id: String,
     val nome: String,
     val tipo: TipoTratta,
-    val luogoPartenza: String,
-    val luogoArrivo: String,
-    /** Indirizzo di arrivo per la navigazione (solo TipoTratta.AUTO): usato per l'icona "Avvia navigazione" nel dettaglio degli eventi creati. Opzionale: null se non compilato o se il tipo non è AUTO. */
+    /** Id del Luogo di partenza (tabella `luogo`); fonte di verità per la persistenza. */
+    val luogoPartenzaId: String,
+    /** Id del Luogo di arrivo (tabella `luogo`); fonte di verità per la persistenza. */
+    val luogoArrivoId: String,
+    /** Nome del Luogo di partenza, risolto via join dal repository in lettura; ignorato in scrittura (deriva da [luogoPartenzaId]). */
+    val luogoPartenza: String = "",
+    /** Nome del Luogo di arrivo, risolto via join dal repository in lettura; ignorato in scrittura (deriva da [luogoArrivoId]). */
+    val luogoArrivo: String = "",
+    /** Indirizzo del Luogo di arrivo per la navigazione (solo TipoTratta.AUTO): usato per l'icona "Avvia navigazione" nel dettaglio degli eventi creati. Risolto via join dal repository in lettura, null se non compilato o se il tipo non è AUTO; ignorato in scrittura. */
     val indirizzoArrivo: String? = null,
     val durataMinutiReale: Int,           // usato per AUTO/RIUNIONE; ignorato per TRENO (deriva dagli slot)
     val margineMinuti: Int,

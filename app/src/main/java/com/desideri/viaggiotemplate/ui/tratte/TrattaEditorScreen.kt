@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -16,6 +17,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
@@ -23,6 +25,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,9 +33,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
 import com.desideri.viaggiotemplate.data.remote.clientOrariPer
 import com.desideri.viaggiotemplate.domain.model.Arrotondamento
+import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
@@ -47,6 +52,8 @@ import com.desideri.viaggiotemplate.ui.common.RicercaOrariTreno
 import com.desideri.viaggiotemplate.ui.common.descrizioneFonteOrari
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
 import com.desideri.viaggiotemplate.ui.common.SelettoreNotifica
+import com.desideri.viaggiotemplate.ui.luoghi.LuoghiViewModel
+import com.desideri.viaggiotemplate.ui.luoghi.LuoghiViewModelFactory
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
@@ -58,13 +65,17 @@ fun TrattaEditorScreen(
     ordineIniziale: () -> Int,
     onSalva: (Tratta) -> Unit,
     onAnnulla: () -> Unit,
-    padding: PaddingValues
+    padding: PaddingValues,
+    luoghiViewModel: LuoghiViewModel = viewModel(factory = LuoghiViewModelFactory.get())
 ) {
+    val luoghi by luoghiViewModel.luoghi.collectAsState()
     var nome by remember { mutableStateOf(trattaEsistente?.nome ?: "") }
     var tipo by remember { mutableStateOf(trattaEsistente?.tipo ?: TipoTratta.TRENO) }
-    var luogoPartenza by remember { mutableStateOf(trattaEsistente?.luogoPartenza ?: "") }
-    var luogoArrivo by remember { mutableStateOf(trattaEsistente?.luogoArrivo ?: "") }
-    var indirizzoArrivo by remember { mutableStateOf(trattaEsistente?.indirizzoArrivo ?: "") }
+    var luogoPartenzaId by remember { mutableStateOf(trattaEsistente?.luogoPartenzaId ?: "") }
+    var luogoArrivoId by remember { mutableStateOf(trattaEsistente?.luogoArrivoId ?: "") }
+    val nomeLuogoPartenza = luoghi.find { it.id == luogoPartenzaId }?.nome ?: ""
+    val nomeLuogoArrivo = luoghi.find { it.id == luogoArrivoId }?.nome ?: ""
+    val luogoArrivoSelezionato = luoghi.find { it.id == luogoArrivoId }
     var durataMinuti by remember { mutableStateOf((trattaEsistente?.durataMinutiReale ?: 15).toString()) }
     var margine by remember { mutableStateOf((trattaEsistente?.margineMinuti ?: Tratta.margineDefaultPerTipo(tipo)).toString()) }
     var arrotondaInizio by remember { mutableStateOf(trattaEsistente?.arrotondaInizio ?: Arrotondamento.DIFETTO) }
@@ -93,9 +104,14 @@ fun TrattaEditorScreen(
         item { SelettoreTipo(tipo) { tipo = it; margine = Tratta.margineDefaultPerTipo(it).toString() } }
         if (tipo == TipoTratta.RIUNIONE) {
             item {
-                OutlinedTextField(
-                    value = luogoPartenza, onValueChange = { luogoPartenza = it },
-                    label = { Text("Luogo") }, modifier = Modifier.fillMaxWidth()
+                SelettoreLuogo(
+                    etichetta = "Luogo",
+                    luoghi = luoghi,
+                    luogoSelezionatoId = luogoPartenzaId,
+                    onSeleziona = { luogoPartenzaId = it.id },
+                    onCreaLuogo = luoghiViewModel::salva,
+                    nuovoId = luoghiViewModel::nuovoId,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
             item {
@@ -109,22 +125,36 @@ fun TrattaEditorScreen(
         } else {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = luogoPartenza, onValueChange = { luogoPartenza = it },
-                        label = { Text("Luogo partenza") }, modifier = Modifier.fillMaxWidth().weight(1f)
+                    SelettoreLuogo(
+                        etichetta = "Luogo partenza",
+                        luoghi = luoghi,
+                        luogoSelezionatoId = luogoPartenzaId,
+                        onSeleziona = { luogoPartenzaId = it.id },
+                        onCreaLuogo = luoghiViewModel::salva,
+                        nuovoId = luoghiViewModel::nuovoId,
+                        modifier = Modifier.weight(1f)
                     )
-                    OutlinedTextField(
-                        value = luogoArrivo, onValueChange = { luogoArrivo = it },
-                        label = { Text("Luogo arrivo") }, modifier = Modifier.fillMaxWidth().weight(1f)
+                    SelettoreLuogo(
+                        etichetta = "Luogo arrivo",
+                        luoghi = luoghi,
+                        luogoSelezionatoId = luogoArrivoId,
+                        onSeleziona = { luogoArrivoId = it.id },
+                        onCreaLuogo = luoghiViewModel::salva,
+                        nuovoId = luoghiViewModel::nuovoId,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
             if (tipo == TipoTratta.AUTO) {
                 item {
-                    OutlinedTextField(
-                        value = indirizzoArrivo, onValueChange = { indirizzoArrivo = it },
-                        label = { Text("Indirizzo arrivo per navigazione (opzionale)") },
-                        modifier = Modifier.fillMaxWidth()
+                    val indirizzo = luogoArrivoSelezionato?.indirizzo?.takeIf { it.isNotBlank() }
+                    Text(
+                        if (indirizzo != null) {
+                            "Indirizzo per la navigazione: $indirizzo"
+                        } else {
+                            "Nessun indirizzo per la navigazione: impostalo sul luogo di arrivo nella scheda Luoghi."
+                        },
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
@@ -219,13 +249,13 @@ fun TrattaEditorScreen(
                     var mostraDialogOrariReali by remember { mutableStateOf(false) }
                     TextButton(
                         onClick = { mostraDialogOrariReali = true },
-                        enabled = luogoPartenza.isNotBlank() && luogoArrivo.isNotBlank()
+                        enabled = nomeLuogoPartenza.isNotBlank() && nomeLuogoArrivo.isNotBlank()
                     ) { Text("Scarica orari da ${vettoreCorrente.name}") }
                     if (mostraDialogOrariReali) {
                         DialogScaricaOrariTreno(
                             vettore = vettoreCorrente,
-                            daStazione = luogoPartenza,
-                            aStazione = luogoArrivo,
+                            daStazione = nomeLuogoPartenza,
+                            aStazione = nomeLuogoArrivo,
                             onAggiungi = { corsa ->
                                 val giaPresente = orariFissi.any { it.partenza == corsa.partenza && it.arrivo == corsa.arrivo }
                                 if (!giaPresente) {
@@ -251,15 +281,17 @@ fun TrattaEditorScreen(
         item { SelettoreNotifica(notifica) { notifica = it } }
 
         item {
+            val luogoArrivoIdFinale = if (tipo == TipoTratta.RIUNIONE) luogoPartenzaId else luogoArrivoId
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {
+                Button(
+                    enabled = luogoPartenzaId.isNotBlank() && luogoArrivoIdFinale.isNotBlank(),
+                    onClick = {
                     val tratta = Tratta(
                         id = trattaEsistente?.id ?: nuovoId(),
                         nome = nome,
                         tipo = tipo,
-                        luogoPartenza = luogoPartenza,
-                        luogoArrivo = if (tipo == TipoTratta.RIUNIONE) luogoPartenza else luogoArrivo,
-                        indirizzoArrivo = if (tipo == TipoTratta.AUTO) indirizzoArrivo.ifBlank { null } else null,
+                        luogoPartenzaId = luogoPartenzaId,
+                        luogoArrivoId = luogoArrivoIdFinale,
                         durataMinutiReale = durataMinuti.toIntOrNull() ?: 0,
                         margineMinuti = margine.toIntOrNull() ?: 0,
                         arrotondaInizio = arrotondaInizio,
@@ -343,6 +375,81 @@ private fun SelettoreArrotondamento(
             }
         }
     }
+}
+
+/**
+ * Dropdown per scegliere un Luogo tra quelli esistenti, con una voce sempre presente per crearne
+ * uno al volo (nome + indirizzo) senza uscire dall'editor tratta — necessario perché la lista
+ * Luoghi può anche essere vuota al primo utilizzo.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelettoreLuogo(
+    etichetta: String,
+    luoghi: List<Luogo>,
+    luogoSelezionatoId: String,
+    onSeleziona: (Luogo) -> Unit,
+    onCreaLuogo: (Luogo) -> Unit,
+    nuovoId: () -> String,
+    modifier: Modifier = Modifier
+) {
+    var espanso by remember { mutableStateOf(false) }
+    var mostraDialogNuovo by remember { mutableStateOf(false) }
+    val selezionato = luoghi.find { it.id == luogoSelezionatoId }
+
+    ExposedDropdownMenuBox(expanded = espanso, onExpandedChange = { espanso = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = selezionato?.nome ?: "Seleziona…", onValueChange = {}, readOnly = true,
+            label = { Text(etichetta) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = espanso) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+        )
+        DropdownMenu(expanded = espanso, onDismissRequest = { espanso = false }) {
+            luoghi.forEach { luogo ->
+                DropdownMenuItem(text = { Text(luogo.nome) }, onClick = { onSeleziona(luogo); espanso = false })
+            }
+            if (luoghi.isNotEmpty()) HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("+ Nuovo luogo…") },
+                onClick = { espanso = false; mostraDialogNuovo = true }
+            )
+        }
+    }
+
+    if (mostraDialogNuovo) {
+        DialogNuovoLuogo(
+            onConferma = { nome, indirizzo ->
+                val luogo = Luogo(id = nuovoId(), nome = nome, indirizzo = indirizzo.ifBlank { null })
+                onCreaLuogo(luogo)
+                onSeleziona(luogo)
+                mostraDialogNuovo = false
+            },
+            onAnnulla = { mostraDialogNuovo = false }
+        )
+    }
+}
+
+@Composable
+private fun DialogNuovoLuogo(onConferma: (nome: String, indirizzo: String) -> Unit, onAnnulla: () -> Unit) {
+    var nome by remember { mutableStateOf("") }
+    var indirizzo by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onAnnulla,
+        title = { Text("Nuovo luogo") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = nome, onValueChange = { nome = it }, label = { Text("Nome") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = indirizzo, onValueChange = { indirizzo = it }, label = { Text("Indirizzo (opzionale)") }, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = nome.isNotBlank(),
+                onClick = { onConferma(nome.trim(), indirizzo.trim()) }
+            ) { Text("Crea") }
+        },
+        dismissButton = { TextButton(onClick = onAnnulla) { Text("Annulla") } }
+    )
 }
 
 @Composable

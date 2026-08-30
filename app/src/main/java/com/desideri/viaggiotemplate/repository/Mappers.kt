@@ -1,10 +1,12 @@
 package com.desideri.viaggiotemplate.repository
 
+import com.desideri.viaggiotemplate.data.local.entities.LuogoEntity
 import com.desideri.viaggiotemplate.data.local.entities.OpzioneOrarioEntity
 import com.desideri.viaggiotemplate.data.local.entities.OrarioFissoEntity
 import com.desideri.viaggiotemplate.data.local.entities.TrattaConOpzioni
 import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
 import com.desideri.viaggiotemplate.domain.model.Arrotondamento
+import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
@@ -13,13 +15,19 @@ import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import com.desideri.viaggiotemplate.domain.model.Vettore
 import java.time.LocalTime
 
+fun LuogoEntity.toDomain(): Luogo = Luogo(id = id, nome = nome, indirizzo = indirizzo)
+
+fun Luogo.toEntity(): LuogoEntity = LuogoEntity(id = id, nome = nome, indirizzo = indirizzo)
+
 fun TrattaConOpzioni.toDomain(): Tratta = Tratta(
     id = tratta.id,
     nome = tratta.nome,
     tipo = TipoTratta.valueOf(tratta.tipo),
-    luogoPartenza = tratta.luogoPartenza,
-    luogoArrivo = tratta.luogoArrivo,
-    indirizzoArrivo = tratta.indirizzoArrivo,
+    luogoPartenzaId = tratta.luogoPartenzaId,
+    luogoArrivoId = tratta.luogoArrivoId,
+    luogoPartenza = luogoPartenza.nome,
+    luogoArrivo = luogoArrivo.nome,
+    indirizzoArrivo = if (tratta.tipo == TipoTratta.AUTO.name) luogoArrivo.indirizzo?.takeIf { it.isNotBlank() } else null,
     durataMinutiReale = tratta.durataMinutiReale,
     margineMinuti = tratta.margineMinuti,
     arrotondaInizio = Arrotondamento.valueOf(tratta.arrotondaInizio),
@@ -56,9 +64,8 @@ fun Tratta.toEntity(): TrattaEntity = TrattaEntity(
     id = id,
     nome = nome,
     tipo = tipo.name,
-    luogoPartenza = luogoPartenza,
-    luogoArrivo = luogoArrivo,
-    indirizzoArrivo = indirizzoArrivo,
+    luogoPartenzaId = luogoPartenzaId,
+    luogoArrivoId = luogoArrivoId,
     durataMinutiReale = durataMinutiReale,
     margineMinuti = margineMinuti,
     arrotondaInizio = arrotondaInizio.name,
