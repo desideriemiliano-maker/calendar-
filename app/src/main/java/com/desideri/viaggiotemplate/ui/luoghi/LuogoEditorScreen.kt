@@ -62,7 +62,7 @@ fun LuogoEditorScreen(
     val coordinateParse = parseCoordinateGps(coordinateTesto)
     val erroreCoordinate: String? = when {
         coordinateTesto.isBlank() -> null
-        coordinateParse == null -> "Formato non valido: usa \"lat, lng\" (es. 45.4642, 9.1900)"
+        coordinateParse == null -> "Formato non valido: usa \"lat, lng\" (es. 45.4642, 9.1900 oppure 45,4642, 9,1900)"
         coordinateParse.first !in RANGE_LATITUDINE -> "Latitudine fuori range: deve essere tra -90 e 90"
         coordinateParse.second !in RANGE_LONGITUDINE -> "Longitudine fuori range: deve essere tra -180 e 180"
         else -> null
@@ -120,6 +120,10 @@ fun LuogoEditorScreen(
             )
         }
         item {
+            // Niente keyboardOptions/KeyboardType.Decimal qui: su molti IME quella tastiera mostra
+            // un solo tasto decimale, quello della lingua del dispositivo (virgola in italiano),
+            // impedendo di digitare l'altro separatore. La tastiera di testo di default espone
+            // entrambi i simboli, coerente col parsing tollerante di parseCoordinateGps.
             OutlinedTextField(
                 value = coordinateTesto,
                 onValueChange = { coordinateTesto = it },
