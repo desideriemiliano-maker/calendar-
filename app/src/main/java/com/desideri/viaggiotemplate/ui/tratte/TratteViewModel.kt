@@ -2,21 +2,33 @@ package com.desideri.viaggiotemplate.ui.tratte
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Tratta
+import com.desideri.viaggiotemplate.repository.LuogoRepository
 import com.desideri.viaggiotemplate.repository.TrattaRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class TratteViewModel(private val repository: TrattaRepository) : ViewModel() {
+class TratteViewModel(
+    private val repository: TrattaRepository,
+    private val luogoRepository: LuogoRepository
+) : ViewModel() {
 
     private val _tratte = MutableStateFlow<List<Tratta>>(emptyList())
     val tratte: StateFlow<List<Tratta>> = _tratte.asStateFlow()
 
+    /** Tutti i Luoghi con le loro coordinate/indirizzo, per risolvere le tappe della vista mappa di una tratta. */
+    private val _luoghi = MutableStateFlow<List<Luogo>>(emptyList())
+    val luoghi: StateFlow<List<Luogo>> = _luoghi.asStateFlow()
+
     init {
         viewModelScope.launch {
             repository.osservaTratte().collect { _tratte.value = it }
+        }
+        viewModelScope.launch {
+            luogoRepository.osservaLuoghi().collect { _luoghi.value = it }
         }
     }
 

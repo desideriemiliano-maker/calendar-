@@ -42,7 +42,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.desideri.viaggiotemplate.BuildConfig
+import com.desideri.viaggiotemplate.domain.mappa.PercorsoTemplate
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorso
+import com.desideri.viaggiotemplate.domain.mappa.risolviPercorsoTratta
 import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
@@ -91,18 +93,17 @@ private data class RisoluzioneMappa(
 private data class NodoRisolto(val luogo: Luogo, val lat: Double, val lng: Double)
 
 /**
- * Risolve il percorso del template (vedi [risolviPercorso]) in coordinate mostrabili su mappa. Per
- * i luoghi con coordinate GPS già salvate le usa direttamente; per quelli con solo un indirizzo
- * tenta un geocoding "best effort" con [Geocoder] (integrato in Android, gratuito, ma non garantito
- * su tutti i dispositivi). Se anche questo fallisce, o se il luogo non ha né coordinate né
- * indirizzo, il nodo viene escluso e conteggiato (mai un errore silenzioso).
+ * Risolve un percorso già calcolato (vedi [risolviPercorso]/[risolviPercorsoTratta]) in coordinate
+ * mostrabili su mappa. Per i luoghi con coordinate GPS già salvate le usa direttamente; per quelli
+ * con solo un indirizzo tenta un geocoding "best effort" con [Geocoder] (integrato in Android,
+ * gratuito, ma non garantito su tutti i dispositivi). Se anche questo fallisce, o se il luogo non
+ * ha né coordinate né indirizzo, il nodo viene escluso e conteggiato (mai un errore silenzioso).
  *
  * Un nodo intermedio escluso "salta" semplicemente il segmento: la linea retta successiva collega
  * direttamente i due punti mostrabili più vicini, ma senza durata etichettata (non c'è una singola
  * tratta a spiegare quel segmento combinato).
  */
-private suspend fun risolviMappa(context: Context, template: Template, tratte: List<Tratta>, luoghi: List<Luogo>): RisoluzioneMappa {
-    val percorso = risolviPercorso(template, tratte)
+private suspend fun risolviMappa(context: Context, percorso: PercorsoTemplate, luoghi: List<Luogo>): RisoluzioneMappa {
     val luoghiPerId = luoghi.associateBy { it.id }
     val geocoder = if (Geocoder.isPresent()) Geocoder(context, Locale.getDefault()) else null
 
@@ -196,11 +197,51 @@ fun TemplateMappaScreen(
     onChiudi: () -> Unit,
     padding: PaddingValues
 ) {
+    val percorso = remember(template, tratte) { risolviPercorso(template, tratte) }
+    MappaPercorsoScreen(
+        titolo = template.nome.ifBlank { "Mappa template" },
+        percorso = percorso,
+        luoghi = luoghi,
+        onChiudi = onChiudi,
+        padding = padding
+    )
+}
+
+/**
+ * Stessa vista di [TemplateMappaScreen], per una singola tratta isolata (partenza + arrivo) aperta
+ * dalla schermata Tratte: nessuna schermata/componente duplicata, solo un percorso diverso in
+ * ingresso (vedi [risolviPercorsoTratta]).
+ */
+@Composable
+fun TrattaMappaScreen(
+    tratta: Tratta,
+    luoghi: List<Luogo>,
+    onChiudi: () -> Unit,
+    padding: PaddingValues
+) {
+    val percorso = remember(tratta) { risolviPercorsoTratta(tratta) }
+    MappaPercorsoScreen(
+        titolo = tratta.nome.ifBlank { "Mappa tratta" },
+        percorso = percorso,
+        luoghi = luoghi,
+        onChiudi = onChiudi,
+        padding = padding
+    )
+}
+
+@Composable
+private fun MappaPercorsoScreen(
+    titolo: String,
+    percorso: PercorsoTemplate,
+    luoghi: List<Luogo>,
+    onChiudi: () -> Unit,
+    padding: PaddingValues
+) {
     val context = LocalContext.current
     var risoluzione by remember { mutableStateOf<RisoluzioneMappa?>(null) }
 
-    LaunchedEffect(template.id, tratte, luoghi) {
-        risoluzione = risolviMappa(context, template, tratte, luoghi)
+    LaunchedEffect(percorso, luoghi) {
+        risoluzione = risolviMappa(context, percorso, luoghi)
     }
 
     Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -208,10 +249,7 @@ fun TemplateMappaScreen(
             IconButton(onClick = onChiudi) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = "Chiudi mappa")
             }
-            Text(
-                template.nome.ifBlank { "Mappa template" },
-                style = MaterialTheme.typography.titleMedium
-            )
+            Text(titolo, style = MaterialTheme.typography.titleMedium)
         }
 
         val esito = risoluzione

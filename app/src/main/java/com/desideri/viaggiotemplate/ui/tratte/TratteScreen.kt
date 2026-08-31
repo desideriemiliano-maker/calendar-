@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Train
 import androidx.compose.material3.Card
@@ -61,29 +62,37 @@ import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
+import com.desideri.viaggiotemplate.ui.mappa.TrattaMappaScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TratteScreen(viewModel: TratteViewModel = viewModel(factory = TratteViewModelFactory.get())) {
     val tratte by viewModel.tratte.collectAsState()
+    val luoghi by viewModel.luoghi.collectAsState()
     var trattaInModifica by remember { mutableStateOf<Tratta?>(null) }
     var mostraEditor by remember { mutableStateOf(false) }
+    var trattaInMappa by remember { mutableStateOf<Tratta?>(null) }
 
     BackHandler(enabled = mostraEditor) { mostraEditor = false }
+    BackHandler(enabled = trattaInMappa != null) { trattaInMappa = null }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                trattaInModifica = null
-                mostraEditor = true
-            }) {
-                Icon(Icons.Filled.Add, contentDescription = "Nuova tratta")
+            // Sopra l'editor cliccarlo scarterebbe silenziosamente le modifiche in corso aprendo
+            // una tratta nuova; sopra la mappa non ha senso: visibile solo sulla lista.
+            if (!mostraEditor && trattaInMappa == null) {
+                FloatingActionButton(onClick = {
+                    trattaInModifica = null
+                    mostraEditor = true
+                }) {
+                    Icon(Icons.Filled.Add, contentDescription = "Nuova tratta")
+                }
             }
         }
     ) { padding ->
-        if (mostraEditor) {
-            TrattaEditorScreen(
+        when {
+            mostraEditor -> TrattaEditorScreen(
                 trattaEsistente = trattaInModifica,
                 nuovoId = viewModel::nuovoId,
                 ordineIniziale = viewModel::prossimoOrdine,
@@ -94,14 +103,20 @@ fun TratteScreen(viewModel: TratteViewModel = viewModel(factory = TratteViewMode
                 onAnnulla = { mostraEditor = false },
                 padding = padding
             )
-        } else {
-            ListaTratte(
+            trattaInMappa != null -> TrattaMappaScreen(
+                tratta = trattaInMappa!!,
+                luoghi = luoghi,
+                onChiudi = { trattaInMappa = null },
+                padding = padding
+            )
+            else -> ListaTratte(
                 tratte = tratte,
                 padding = padding,
                 onModifica = {
                     trattaInModifica = it
                     mostraEditor = true
                 },
+                onVisualizzaMappa = { trattaInMappa = it },
                 onElimina = viewModel::elimina,
                 onSposta = viewModel::sposta,
                 onClona = viewModel::clona
@@ -116,6 +131,7 @@ private fun ListaTratte(
     tratte: List<Tratta>,
     padding: PaddingValues,
     onModifica: (Tratta) -> Unit,
+    onVisualizzaMappa: (Tratta) -> Unit,
     onElimina: (Tratta) -> Unit,
     onSposta: (Tratta, Int) -> Unit,
     onClona: (Tratta) -> Unit
@@ -233,6 +249,9 @@ private fun ListaTratte(
                         }
                         IconButton(onClick = { onSposta(tratta, 1) }, enabled = indice < tratteFiltrate.size - 1) {
                             Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
+                        }
+                        IconButton(onClick = { onVisualizzaMappa(tratta) }) {
+                            Icon(Icons.Filled.Map, contentDescription = "Visualizza su mappa")
                         }
                         IconButton(onClick = { onClona(tratta) }) {
                             Icon(Icons.Filled.ContentCopy, contentDescription = "Clona")

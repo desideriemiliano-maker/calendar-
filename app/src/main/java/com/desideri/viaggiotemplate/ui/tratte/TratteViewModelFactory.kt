@@ -8,6 +8,6 @@ object TratteViewModelFactory {
     fun get(): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            TratteViewModel(AppContainer.trattaRepository) as T
+            TratteViewModel(AppContainer.trattaRepository, AppContainer.luogoRepository) as T
     }
 }

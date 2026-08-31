@@ -3,6 +3,7 @@ package com.desideri.viaggiotemplate.domain.mappa
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Template
+import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
 
@@ -136,4 +137,24 @@ fun risolviPercorso(template: Template, tratte: List<Tratta>): PercorsoTemplate 
     }
 
     return PercorsoTemplate(nodiConAttesa, archi)
+}
+
+/**
+ * Risolve il percorso di una singola tratta isolata (partenza + arrivo), per la vista mappa
+ * aperta dalla schermata Tratte anziché da un template. Costruisce un template sintetico di un
+ * solo slot e riusa [risolviPercorso] invariato: stessa identica logica (inclusa la durata
+ * certa/indicativa per TRENO/AEREO), senza duplicarla. L'attesa sui nodi resta sempre `null`
+ * (corretto: fuori da un template non esiste una tratta precedente/successiva rispetto a cui
+ * definire un margine).
+ */
+fun risolviPercorsoTratta(tratta: Tratta): PercorsoTemplate {
+    val slotSintetico = TemplateSlot(
+        id = tratta.id,
+        ordine = 0,
+        ancora = true,
+        trattaCandidatiIds = listOf(tratta.id),
+        trattaSelezionataId = tratta.id
+    )
+    val templateSintetico = Template(id = tratta.id, nome = tratta.nome, slots = listOf(slotSintetico))
+    return risolviPercorso(templateSintetico, listOf(tratta))
 }
