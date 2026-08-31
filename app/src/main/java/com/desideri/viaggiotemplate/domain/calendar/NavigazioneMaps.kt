@@ -70,3 +70,20 @@ fun apriPosizioneSuMaps(context: Context, lat: Double, lng: Double, etichetta: S
         context.startActivity(Intent(Intent.ACTION_VIEW, uriWeb))
     }
 }
+
+/**
+ * Apre Google Maps su una ricerca testuale di [indirizzo] (nessuna coordinata nota, a differenza di
+ * [apriPosizioneSuMaps]). `geo:0,0?q=` è la forma dell'intent `geo:` per una ricerca testuale pura,
+ * senza un punto di riferimento: il "0,0" è ignorato dal risolutore di Maps in presenza di una `q`
+ * non numerica. Stesso fallback al link web delle altre funzioni di questo file se nessuna app
+ * gestisce l'intent nativo.
+ */
+fun apriIndirizzoSuMaps(context: Context, indirizzo: String) {
+    val intentNativo = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(indirizzo)}"))
+    try {
+        context.startActivity(intentNativo)
+    } catch (_: ActivityNotFoundException) {
+        val uriWeb = Uri.parse("https://www.google.com/maps/search/?api=1&query=${Uri.encode(indirizzo)}")
+        context.startActivity(Intent(Intent.ACTION_VIEW, uriWeb))
+    }
+}

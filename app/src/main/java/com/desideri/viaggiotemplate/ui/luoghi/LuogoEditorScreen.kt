@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.desideri.viaggiotemplate.domain.calendar.apriIndirizzoSuMaps
 import com.desideri.viaggiotemplate.domain.calendar.apriPosizioneSuMaps
 import com.desideri.viaggiotemplate.domain.location.RANGE_LATITUDINE
 import com.desideri.viaggiotemplate.domain.location.RANGE_LONGITUDINE
@@ -116,6 +117,13 @@ fun LuogoEditorScreen(
             OutlinedTextField(
                 value = indirizzo, onValueChange = { indirizzo = it },
                 label = { Text("Indirizzo (opzionale, per la navigazione da tratte AUTO)") },
+                trailingIcon = {
+                    if (indirizzo.isNotBlank()) {
+                        IconButton(onClick = { apriIndirizzoSuMaps(context, indirizzo) }) {
+                            Icon(Icons.Filled.Map, contentDescription = "Apri su Google Maps")
+                        }
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
             )
         }
