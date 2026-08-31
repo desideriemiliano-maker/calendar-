@@ -16,7 +16,13 @@ class ImpostazioniStore(context: Context) {
             }
         }
 
+    /** Fattore di zoom (pinch-to-zoom) applicato a tutta la UI, vedi [com.desideri.viaggiotemplate.ui.common.ZoomableRoot]. 1f = nessuno zoom. */
+    var fattoreZoomUi: Float
+        get() = prefs.getFloat(CHIAVE_FATTORE_ZOOM, 1f)
+        set(value) = prefs.edit().putFloat(CHIAVE_FATTORE_ZOOM, value).apply()
+
     private companion object {
         const val CHIAVE_CALENDARIO_ID = "calendario_selezionato_id"
+        const val CHIAVE_FATTORE_ZOOM = "fattore_zoom_ui"
     }
 }
