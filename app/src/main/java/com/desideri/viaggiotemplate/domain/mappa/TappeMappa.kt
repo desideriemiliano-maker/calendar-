@@ -1,7 +1,10 @@
 package com.desideri.viaggiotemplate.domain.mappa
 
+import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
+import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.Tratta
+import com.desideri.viaggiotemplate.domain.model.TipoTratta
 
 /**
  * Un nodo (luogo) del percorso di un template sulla mappa.
@@ -31,16 +34,52 @@ data class NodoPercorso(
  * tratta diretta a spiegarlo (nessun controllo nel resto dell'app impedisce a un template di avere
  * un salto: vedi [MotoreCalcolo], che propaga solo i tempi, non verifica i luoghi).
  *
- * [durataMinuti] è la durata reale della tratta, solo per i tipi che non usano orari programmati
- * (AUTO/RIUNIONE/A_PIEDI, vedi [com.desideri.viaggiotemplate.domain.model.TipoTratta.usaOrariProgrammati]):
- * per TRENO/AEREO la durata dipende da quale opzione oraria/orario fisso verrebbe scelto in fase di
- * calcolo, cosa che richiede un'ancora con orario concreto — non c'è un singolo valore corretto da
- * mostrare qui, quindi resta `null` invece di sceglierne uno arbitrario.
+ * [durataMinuti]: per AUTO/RIUNIONE/A_PIEDI è `durataMinutiReale`, un valore certo
+ * ([durataIndicativa] resta `false`). Per TRENO/AEREO, [MotoreCalcolo] sceglie l'orario di uno
+ * specifico giorno risolvendo un'ancora — ma la DURATA di ogni pattern configurato (differenza tra
+ * arrivo e partenza di una [OpzioneOrario] o di un [OrarioFisso]) non dipende da quale ora del
+ * giorno viene scelta, quindi è comunque calcolabile senza ancora: se tutti i pattern configurati
+ * durano uguale, quel valore è certo; se durano diverso, [durataMinuti] è la loro media e
+ * [durataIndicativa] è `true` (va mostrata come "circa", non come un dato esatto). Se la tratta non
+ * ha alcun pattern configurato (né opzioni ricorrenti né orari fissi — lo stesso caso in cui
+ * MotoreCalcolo usa un placeholder "da confermare"), non c'è proprio nulla su cui basarsi:
+ * [durataMinuti] resta `null`.
+ *
+ * [tipoTratta] è il tipo della tratta di questo arco (`null` per un salto, che non ha una tratta):
+ * serve a spiegare sull'arco stesso perché lì non compare una durata, quando [durataMinuti] è
+ * `null` per mancanza di dati (non per un salto).
  */
 data class ArcoPercorso(
     val trattaId: String?,
-    val durataMinuti: Int?
+    val durataMinuti: Int?,
+    val durataIndicativa: Boolean = false,
+    val tipoTratta: TipoTratta? = null
 )
+
+/** Durata di un singolo pattern ricorrente, indipendente da quale ora del giorno verrà scelta. */
+private fun durataMinuti(opzione: OpzioneOrario): Int =
+    opzione.offsetOreArrivo * 60 + opzione.minutoArrivo - opzione.minutoPartenza
+
+/** Durata di un orario fisso; se l'arrivo è prima della partenza si considera oltre mezzanotte. */
+private fun durataMinuti(fisso: OrarioFisso): Int {
+    val partenzaMin = fisso.partenza.hour * 60 + fisso.partenza.minute
+    val arrivoMin = fisso.arrivo.hour * 60 + fisso.arrivo.minute
+    return (if (arrivoMin < partenzaMin) arrivoMin + 1440 else arrivoMin) - partenzaMin
+}
+
+/**
+ * Risolve durata/indicatività di una tratta per l'arco sulla mappa. Vedi il commento su
+ * [ArcoPercorso.durataMinuti] per il ragionamento completo.
+ */
+private fun risolviDurataArco(tratta: Tratta): Pair<Int?, Boolean> {
+    if (!tratta.tipo.usaOrariProgrammati) return tratta.durataMinutiReale to false
+    val durate = tratta.opzioniOrario.map(::durataMinuti) + tratta.orariFissi.map(::durataMinuti)
+    return when {
+        durate.isEmpty() -> null to false
+        durate.distinct().size == 1 -> durate.first() to false
+        else -> (durate.sum() / durate.size) to true
+    }
+}
 
 data class PercorsoTemplate(
     val nodi: List<NodoPercorso>,
@@ -69,8 +108,6 @@ fun risolviPercorso(template: Template, tratte: List<Tratta>): PercorsoTemplate 
     val nodi = mutableListOf(sequenza.first().luogoPartenzaId)
     val archi = mutableListOf<ArcoPercorso>()
 
-    fun durataDi(tratta: Tratta): Int? = if (tratta.tipo.usaOrariProgrammati) null else tratta.durataMinutiReale
-
     sequenza.forEach { tratta ->
         if (nodi.last() != tratta.luogoPartenzaId) {
             // Salto: la partenza di questa tratta non coincide con l'ultimo arrivo registrato.
@@ -78,7 +115,8 @@ fun risolviPercorso(template: Template, tratte: List<Tratta>): PercorsoTemplate 
             nodi += tratta.luogoPartenzaId
         }
         if (tratta.luogoArrivoId != tratta.luogoPartenzaId) {
-            archi += ArcoPercorso(trattaId = tratta.id, durataMinuti = durataDi(tratta))
+            val (durata, indicativa) = risolviDurataArco(tratta)
+            archi += ArcoPercorso(trattaId = tratta.id, durataMinuti = durata, durataIndicativa = indicativa, tipoTratta = tratta.tipo)
             nodi += tratta.luogoArrivoId
         }
         // Se arrivo == partenza (tratta puntiforme, es. RIUNIONE) non si aggiunge né nodo né arco:

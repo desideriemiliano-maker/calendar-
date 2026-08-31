@@ -45,6 +45,7 @@ import com.desideri.viaggiotemplate.BuildConfig
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorso
 import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Template
+import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -73,8 +74,11 @@ private data class TappaGeolocalizzata(
 private data class SegmentoGeolocalizzato(
     val da: GeoPoint,
     val a: GeoPoint,
-    /** Durata della tratta diretta tra i due punti; null se non determinabile (TRENO/AEREO, salto, o un nodo intermedio escluso) — vedi [com.desideri.viaggiotemplate.domain.mappa.ArcoPercorso]. */
-    val durataMinuti: Int?
+    /** Durata (certa o indicativa); null se non determinabile — un nodo intermedio escluso, o una tratta TRENO/AEREO senza alcun orario configurato. */
+    val durataMinuti: Int?,
+    val durataIndicativa: Boolean,
+    /** Tipo della tratta di questo arco, per spiegare sulla linea perché non c'è una durata quando [durataMinuti] è null per mancanza di dati (non per un nodo escluso). */
+    val tipoTratta: TipoTratta?
 )
 
 private data class RisoluzioneMappa(
@@ -131,10 +135,16 @@ private suspend fun risolviMappa(context: Context, template: Template, tratte: L
         val i1 = indiciValidi[pos + 1]
         val r0 = risolti[i0]!!
         val r1 = risolti[i1]!!
-        // La durata è nota solo se non abbiamo saltato nessun nodo escluso tra i due (i1 == i0 + 1):
+        // L'arco è noto solo se non abbiamo saltato nessun nodo escluso tra i due (i1 == i0 + 1):
         // altrimenti il segmento disegnato copre più di un arco originale, e nessuna singola tratta lo spiega.
-        val durata = if (i1 == i0 + 1) percorso.archi.getOrNull(i0)?.durataMinuti else null
-        SegmentoGeolocalizzato(GeoPoint(r0.lat, r0.lng), GeoPoint(r1.lat, r1.lng), durata)
+        val arco = if (i1 == i0 + 1) percorso.archi.getOrNull(i0) else null
+        SegmentoGeolocalizzato(
+            da = GeoPoint(r0.lat, r0.lng),
+            a = GeoPoint(r1.lat, r1.lng),
+            durataMinuti = arco?.durataMinuti,
+            durataIndicativa = arco?.durataIndicativa ?: false,
+            tipoTratta = arco?.tipoTratta
+        )
     }
 
     return RisoluzioneMappa(tappe, segmenti, senzaDati, geocodingFallito)
@@ -338,10 +348,14 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
     }
 
     val etichetteSegmento = esito.segmenti.mapNotNull { segmento ->
-        segmento.durataMinuti?.let { minuti ->
-            val medio = GeoPoint((segmento.da.latitude + segmento.a.latitude) / 2, (segmento.da.longitude + segmento.a.longitude) / 2)
-            medio to formattaDurataMinuti(minuti)
+        val testo = when {
+            segmento.durataMinuti != null -> (if (segmento.durataIndicativa) "~" else "") + formattaDurataMinuti(segmento.durataMinuti)
+            // Nessuna durata determinabile ma sappiamo il tipo (TRENO/AEREO senza alcun orario
+            // configurato): mostriamo il tipo sull'arco invece di lasciarlo muto senza spiegazione.
+            segmento.tipoTratta != null -> segmento.tipoTratta.name
+            else -> null
         }
+        testo?.let { Triple(segmento.da, segmento.a, it) }
     }
     val etichetteNodo = tappe.mapNotNull { tappa ->
         tappa.attesaMinuti?.let { minuti -> GeoPoint(tappa.lat, tappa.lng) to "Attesa ${formattaDurataMinuti(minuti)}" }
@@ -368,9 +382,17 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
  * di dover propagare lo stato dello zoom fino a Compose solo per nascondere/mostrare il testo.
  * Sotto [SOGLIA_ZOOM_ETICHETTE] non disegna nulla; sopra, disegna ogni etichetta su un fondino
  * semitrasparente per restare leggibile sopra qualunque tile.
+ *
+ * L'etichetta di un arco NON è ancorata al punto medio geografico del segmento: su un arco lungo
+ * (es. Milano-Roma) il punto medio è quasi sempre fuori dalla porzione di mappa effettivamente
+ * visibile una volta superata la soglia di zoom, rendendo l'etichetta di fatto irraggiungibile
+ * senza spostarsi esattamente lì. Si ritaglia invece il segmento contro il rettangolo dello
+ * schermo (Cohen-Sutherland, in coordinate pixel) e si etichetta il punto medio della sola parte
+ * visibile: l'etichetta resta raggiungibile ovunque ci si trovi lungo la linea, e sparisce solo
+ * quando l'intera linea è fuori dallo schermo (nulla da etichettare).
  */
 private class OverlayEtichette(
-    private val etichetteSegmento: List<Pair<GeoPoint, String>>,
+    private val etichetteSegmento: List<Triple<GeoPoint, GeoPoint, String>>,
     private val etichetteNodo: List<Pair<GeoPoint, String>>
 ) : Overlay() {
     private val paintSfondo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(190, 0, 0, 0) }
@@ -383,16 +405,23 @@ private class OverlayEtichette(
         if (shadow || mapView.zoomLevelDouble < SOGLIA_ZOOM_ETICHETTE) return
         paintTesto.textSize = 12f * mapView.context.resources.displayMetrics.density
         val proiezione = mapView.projection
-        val punto = Point()
+        val larghezza = mapView.width.toFloat()
+        val altezza = mapView.height.toFloat()
+        val p0 = Point()
+        val p1 = Point()
 
-        etichetteSegmento.forEach { (geo, testo) ->
-            proiezione.toPixels(geo, punto)
-            disegnaEtichetta(canvas, punto.x.toFloat(), punto.y.toFloat(), testo)
+        etichetteSegmento.forEach { (da, a, testo) ->
+            proiezione.toPixels(da, p0)
+            proiezione.toPixels(a, p1)
+            val visibile = clipSegmentoAlViewport(p0.x.toFloat(), p0.y.toFloat(), p1.x.toFloat(), p1.y.toFloat(), larghezza, altezza)
+            if (visibile != null) {
+                disegnaEtichetta(canvas, (visibile[0] + visibile[2]) / 2, (visibile[1] + visibile[3]) / 2, testo)
+            }
         }
         val offsetNodo = 34f * mapView.context.resources.displayMetrics.density
         etichetteNodo.forEach { (geo, testo) ->
-            proiezione.toPixels(geo, punto)
-            disegnaEtichetta(canvas, punto.x.toFloat(), punto.y.toFloat() + offsetNodo, testo)
+            proiezione.toPixels(geo, p0)
+            disegnaEtichetta(canvas, p0.x.toFloat(), p0.y.toFloat() + offsetNodo, testo)
         }
     }
 
@@ -408,6 +437,40 @@ private class OverlayEtichette(
         canvas.drawRoundRect(rect, padding, padding, paintSfondo)
         canvas.drawText(testo, cx, cy + paintTesto.textSize / 3, paintTesto)
     }
+}
+
+/**
+ * Ritaglio di Cohen-Sutherland del segmento (x0,y0)-(x1,y1) contro il rettangolo [0,larghezza] x
+ * [0,altezza]: ritorna gli estremi della sola porzione visibile, o null se il segmento è
+ * interamente fuori. Limitato a 8 iterazioni per non poter mai girare all'infinito (bastano al
+ * più 4 per un rettangolo), anche in un ipotetico caso limite numerico.
+ */
+private fun clipSegmentoAlViewport(x0: Float, y0: Float, x1: Float, y1: Float, larghezza: Float, altezza: Float): FloatArray? {
+    val sinistra = 1; val destra = 2; val alto = 4; val basso = 8
+    fun codice(x: Float, y: Float): Int {
+        var c = 0
+        if (x < 0) c = c or sinistra else if (x > larghezza) c = c or destra
+        if (y < 0) c = c or alto else if (y > altezza) c = c or basso
+        return c
+    }
+    var ax = x0; var ay = y0; var bx = x1; var by = y1
+    var codiceA = codice(ax, ay)
+    var codiceB = codice(bx, by)
+    repeat(8) {
+        if (codiceA or codiceB == 0) return floatArrayOf(ax, ay, bx, by)
+        if (codiceA and codiceB != 0) return null
+        val fuori = if (codiceA != 0) codiceA else codiceB
+        var x = 0f
+        var y = 0f
+        when {
+            fuori and alto != 0 -> { x = ax + (bx - ax) * (0 - ay) / (by - ay); y = 0f }
+            fuori and basso != 0 -> { x = ax + (bx - ax) * (altezza - ay) / (by - ay); y = altezza }
+            fuori and destra != 0 -> { y = ay + (by - ay) * (larghezza - ax) / (bx - ax); x = larghezza }
+            fuori and sinistra != 0 -> { y = ay + (by - ay) * (0 - ax) / (bx - ax); x = 0f }
+        }
+        if (fuori == codiceA) { ax = x; ay = y; codiceA = codice(ax, ay) } else { bx = x; by = y; codiceB = codice(bx, by) }
+    }
+    return null
 }
 
 /** Disegna un piccolo pin circolare con il numero della tappa, per i marker ordinati sulla mappa. */
