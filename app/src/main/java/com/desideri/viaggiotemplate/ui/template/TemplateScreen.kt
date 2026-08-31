@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -57,6 +58,7 @@ import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
 import com.desideri.viaggiotemplate.ui.common.SelettoreNotificaConEreditarieta
+import com.desideri.viaggiotemplate.ui.mappa.TemplateMappaScreen
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,10 +66,15 @@ import java.util.UUID
 fun TemplateScreen(viewModel: TemplateViewModel = viewModel(factory = TemplateViewModelFactory.get())) {
     val templateEntities by viewModel.templateEntities.collectAsState()
     val tratteDisponibili by viewModel.tratteDisponibili.collectAsState()
+    val luoghi by viewModel.luoghi.collectAsState()
 
     var templateInModifica by remember { mutableStateOf<Template?>(null) }
     var mostraEditor by remember { mutableStateOf(false) }
     var caricamentoId by remember { mutableStateOf<String?>(null) }
+
+    var templateInMappa by remember { mutableStateOf<Template?>(null) }
+    var mostraMappa by remember { mutableStateOf(false) }
+    var caricamentoMappaId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(caricamentoId) {
         caricamentoId?.let { id ->
@@ -76,7 +83,15 @@ fun TemplateScreen(viewModel: TemplateViewModel = viewModel(factory = TemplateVi
         }
     }
 
+    LaunchedEffect(caricamentoMappaId) {
+        caricamentoMappaId?.let { id ->
+            templateInMappa = viewModel.getTemplate(id)
+            mostraMappa = true
+        }
+    }
+
     BackHandler(enabled = mostraEditor) { mostraEditor = false }
+    BackHandler(enabled = mostraMappa) { mostraMappa = false }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -89,19 +104,26 @@ fun TemplateScreen(viewModel: TemplateViewModel = viewModel(factory = TemplateVi
             }
         }
     ) { padding ->
-        if (mostraEditor && templateInModifica != null) {
-            TemplateEditorScreen(
+        when {
+            mostraEditor && templateInModifica != null -> TemplateEditorScreen(
                 template = templateInModifica!!,
                 tratteDisponibili = tratteDisponibili,
                 onSalva = { viewModel.salva(it); mostraEditor = false },
                 onAnnulla = { mostraEditor = false },
                 padding = padding
             )
-        } else {
-            ListaTemplate(
+            mostraMappa && templateInMappa != null -> TemplateMappaScreen(
+                template = templateInMappa!!,
+                tratte = tratteDisponibili,
+                luoghi = luoghi,
+                onChiudi = { mostraMappa = false; caricamentoMappaId = null },
+                padding = padding
+            )
+            else -> ListaTemplate(
                 templateEntities = templateEntities,
                 padding = padding,
                 onModifica = { caricamentoId = it.id },
+                onVisualizzaMappa = { caricamentoMappaId = it.id },
                 onElimina = viewModel::elimina,
                 onSposta = viewModel::sposta
             )
@@ -114,6 +136,7 @@ private fun ListaTemplate(
     templateEntities: List<TemplateEntity>,
     padding: PaddingValues,
     onModifica: (TemplateEntity) -> Unit,
+    onVisualizzaMappa: (TemplateEntity) -> Unit,
     onElimina: (TemplateEntity) -> Unit,
     onSposta: (TemplateEntity, Int) -> Unit
 ) {
@@ -166,6 +189,9 @@ private fun ListaTemplate(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
+                    IconButton(onClick = { onVisualizzaMappa(entity) }) {
+                        Icon(Icons.Filled.Map, contentDescription = "Visualizza su mappa")
+                    }
                     IconButton(onClick = { onSposta(entity, -1) }, enabled = indice > 0) {
                         Icon(Icons.Filled.ArrowUpward, contentDescription = "Sposta su")
                     }

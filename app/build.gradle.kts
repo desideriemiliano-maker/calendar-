@@ -139,6 +139,10 @@ dependencies {
     // Posizione attuale per l'icona "usa posizione attuale" nell'editor di un Luogo (FusedLocationProviderClient).
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
+    // Mappa dei luoghi di un template (marker + linee rette, nessun itinerario): tile OpenStreetMap,
+    // nessuna API key né fatturazione, a differenza di Maps SDK/Static Maps. Vedi TemplateMappaScreen.
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
+
     // Test (unit, JVM puro - non richiedono emulatore)
     testImplementation("junit:junit:4.13.2")
 }
