@@ -43,5 +43,18 @@ class LuoghiViewModel(private val repository: LuogoRepository) : ViewModel() {
         _erroreEliminazione.value = null
     }
 
+    /** Sposta un luogo su (-1) o giù (+1) nella lista della libreria. */
+    fun sposta(luogo: Luogo, direzione: Int) {
+        viewModelScope.launch {
+            val lista = _luoghi.value
+            val indice = lista.indexOfFirst { it.id == luogo.id }
+            val nuovoIndice = indice + direzione
+            if (indice !in lista.indices || nuovoIndice !in lista.indices) return@launch
+            repository.scambiaOrdine(lista[indice], lista[nuovoIndice])
+        }
+    }
+
     fun nuovoId(): String = repository.nuovoId()
+
+    fun prossimoOrdine(): Int = _luoghi.value.size
 }

@@ -40,18 +40,21 @@ import com.desideri.viaggiotemplate.domain.location.formattaCoordinateGps
 import com.desideri.viaggiotemplate.domain.location.parseCoordinateGps
 import com.desideri.viaggiotemplate.domain.location.posizioneAttuale
 import com.desideri.viaggiotemplate.domain.model.Luogo
+import com.desideri.viaggiotemplate.ui.common.SelettoreColore
 import kotlinx.coroutines.launch
 
 @Composable
 fun LuogoEditorScreen(
     luogoEsistente: Luogo?,
     nuovoId: () -> String,
+    ordineIniziale: () -> Int,
     onSalva: (Luogo) -> Unit,
     onAnnulla: () -> Unit,
     padding: PaddingValues
 ) {
     var nome by remember { mutableStateOf(luogoEsistente?.nome ?: "") }
     var indirizzo by remember { mutableStateOf(luogoEsistente?.indirizzo ?: "") }
+    var colore by remember { mutableStateOf(luogoEsistente?.colore) }
     var coordinateTesto by remember {
         mutableStateOf(
             luogoEsistente?.latitudine?.let { lat ->
@@ -168,6 +171,9 @@ fun LuogoEditorScreen(
             )
         }
         item {
+            SelettoreColore(coloreSelezionato = colore, onCambia = { colore = it })
+        }
+        item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     enabled = nome.isNotBlank() && coordinateValide,
@@ -178,7 +184,9 @@ fun LuogoEditorScreen(
                                 nome = nome.trim(),
                                 indirizzo = indirizzo.trim().ifBlank { null },
                                 latitudine = coordinateParse?.first,
-                                longitudine = coordinateParse?.second
+                                longitudine = coordinateParse?.second,
+                                colore = colore,
+                                ordine = luogoEsistente?.ordine ?: ordineIniziale()
                             )
                         )
                     }

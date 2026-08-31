@@ -380,7 +380,7 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
                 position = punti[indice]
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 title = "${tappa.numero}. ${tappa.luogo.nome}"
-                icon = iconaMarkerNumerato(mapView.context, tappa.numero)
+                icon = iconaMarkerNumerato(mapView.context, tappa.numero, tappa.luogo.colore)
             }
         )
     }
@@ -511,14 +511,18 @@ private fun clipSegmentoAlViewport(x0: Float, y0: Float, x1: Float, y1: Float, l
     return null
 }
 
-/** Disegna un piccolo pin circolare con il numero della tappa, per i marker ordinati sulla mappa. */
-private fun iconaMarkerNumerato(context: Context, numero: Int): Drawable {
+/**
+ * Disegna un piccolo pin circolare con il numero della tappa, per i marker ordinati sulla mappa.
+ * [coloreLuogo] è il colore ARGB scelto dall'utente per questo Luogo (stesso campo usato per lo
+ * sfondo della sua card in libreria); se assente usa il rosso di default.
+ */
+private fun iconaMarkerNumerato(context: Context, numero: Int, coloreLuogo: Int?): Drawable {
     val diametro = (32 * context.resources.displayMetrics.density).toInt().coerceAtLeast(24)
     val bitmap = Bitmap.createBitmap(diametro, diametro, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val raggio = diametro / 2f
 
-    val paintCerchio = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D32F2F") }
+    val paintCerchio = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = coloreLuogo ?: Color.parseColor("#D32F2F") }
     canvas.drawCircle(raggio, raggio, raggio - 2f, paintCerchio)
 
     val paintBordo = Paint(Paint.ANTI_ALIAS_FLAG).apply {

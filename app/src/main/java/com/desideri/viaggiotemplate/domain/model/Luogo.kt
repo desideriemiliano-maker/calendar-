@@ -7,11 +7,18 @@ package com.desideri.viaggiotemplate.domain.model
  * [latitudine]/[longitudine] sono un'alternativa opzionale all'indirizzo testuale: quando
  * presenti hanno priorità sull'indirizzo per l'evento calendario e la navigazione, essendo più
  * precise (vedi [com.desideri.viaggiotemplate.domain.calendar.CalendarWriter]).
+ *
+ * [colore] è lo stesso ARGB di [com.desideri.viaggiotemplate.domain.model.Tratta.colore]/
+ * [com.desideri.viaggiotemplate.domain.model.Template.colore] (stessa palette, stesso significato:
+ * null = grigio di default del tema), usato per lo sfondo della card in libreria e per il marker
+ * di questo luogo nella vista mappa. [ordine] è la posizione nella lista, riordinabile a mano.
  */
 data class Luogo(
     val id: String,
     val nome: String,
     val indirizzo: String? = null,
     val latitudine: Double? = null,
-    val longitudine: Double? = null
+    val longitudine: Double? = null,
+    val colore: Int? = null,
+    val ordine: Int = 0
 )

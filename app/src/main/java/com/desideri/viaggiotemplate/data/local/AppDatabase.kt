@@ -25,7 +25,7 @@ import java.util.UUID
 const val NOME_FILE_DATABASE = "viaggio-template.db"
 
 /** Versione corrente dello schema (== `PRAGMA user_version` scritto da Room): riusata dal ripristino di un backup Drive per verificare, prima di sostituire il database live, che il file scaricato sia dello schema atteso. */
-const val VERSIONE_SCHEMA_DATABASE = 14
+const val VERSIONE_SCHEMA_DATABASE = 15
 
 @Database(
     entities = [
@@ -321,5 +321,35 @@ val MIGRATION_13_14: Migration = object : Migration(13, 14) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE luogo ADD COLUMN latitudine REAL")
         db.execSQL("ALTER TABLE luogo ADD COLUMN longitudine REAL")
+    }
+}
+
+/**
+ * Aggiunge `colore` (stessa palette/significato di Tratta/Template) e `ordine` al Luogo, per
+ * poterlo colorare e riordinare come già le altre due liste della libreria.
+ *
+ * Le righe esistenti non hanno un ordine significativo: `ALTER TABLE ... ADD COLUMN` le
+ * lascerebbe tutte a 0 (parità totale, ordine indefinito). Si assegna invece un ordine iniziale
+ * deterministico per nome (alfabetico, case-insensitive: lo stesso ordinamento con cui la
+ * schermata Luoghi mostrava l'elenco finora), così l'elenco non cambia visivamente subito dopo
+ * l'aggiornamento — riordinarlo diventa da qui in poi un'azione esplicita dell'utente.
+ *
+ * Fatto con un cursore invece di un'unica UPDATE con funzione finestra (ROW_NUMBER): le funzioni
+ * finestra richiedono SQLite 3.25+, non garantito sulla versione di sistema di un dispositivo con
+ * minSdk 26 (Android 8.0, 2017) quanto quella bundlata con Room.
+ */
+val MIGRATION_14_15: Migration = object : Migration(14, 15) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE luogo ADD COLUMN colore INTEGER")
+        db.execSQL("ALTER TABLE luogo ADD COLUMN ordine INTEGER NOT NULL DEFAULT 0")
+
+        val ids = mutableListOf<String>()
+        db.query("SELECT id FROM luogo ORDER BY nome COLLATE NOCASE").use { cursore ->
+            val idxId = cursore.getColumnIndexOrThrow("id")
+            while (cursore.moveToNext()) ids += cursore.getString(idxId)
+        }
+        ids.forEachIndexed { indice, id ->
+            db.execSQL("UPDATE luogo SET ordine = ? WHERE id = ?", arrayOf(indice, id))
+        }
     }
 }

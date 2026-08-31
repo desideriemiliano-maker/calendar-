@@ -10,5 +10,8 @@ data class LuogoEntity(
     val indirizzo: String? = null,
     /** Coordinate GPS, alternative all'indirizzo testuale: se presenti hanno priorità sull'indirizzo per navigazione ed evento calendario. */
     val latitudine: Double? = null,
-    val longitudine: Double? = null
+    val longitudine: Double? = null,
+    /** Colore ARGB della card in libreria (e del marker sulla mappa); null = colore grigio di default del tema. */
+    val colore: Int? = null,
+    val ordine: Int = 0
 )

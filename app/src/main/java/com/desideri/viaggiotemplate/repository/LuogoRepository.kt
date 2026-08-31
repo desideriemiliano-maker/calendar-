@@ -55,5 +55,11 @@ class LuogoRepository(private val luogoDao: LuogoDao, private val trattaDao: Tra
         return EsitoEliminazioneLuogo.Eliminato
     }
 
+    /** Scambia la posizione (ordine) di due luoghi nella libreria. */
+    suspend fun scambiaOrdine(a: Luogo, b: Luogo) {
+        luogoDao.aggiornaOrdine(a.id, b.ordine)
+        luogoDao.aggiornaOrdine(b.id, a.ordine)
+    }
+
     fun nuovoId(): String = UUID.randomUUID().toString()
 }

@@ -12,15 +12,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.model.Luogo
@@ -69,6 +73,7 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
             LuogoEditorScreen(
                 luogoEsistente = luogoInModifica,
                 nuovoId = viewModel::nuovoId,
+                ordineIniziale = viewModel::prossimoOrdine,
                 onSalva = { luogo ->
                     viewModel.salva(luogo)
                     mostraEditor = false
@@ -107,10 +112,13 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
                     modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(luoghiFiltrati, key = { it.id }) { luogo ->
+                    itemsIndexed(luoghiFiltrati, key = { _, luogo -> luogo.id }) { indice, luogo ->
                         Card(
                             onClick = { luogoInModifica = luogo; mostraEditor = true },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = luogo.colore?.let {
+                                CardDefaults.cardColors(containerColor = Color(it), contentColor = Color(0xFF1B1B1B))
+                            } ?: CardDefaults.cardColors()
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -123,6 +131,12 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
                                     luogo.indirizzo?.let {
                                         Text(it, style = MaterialTheme.typography.bodySmall)
                                     }
+                                }
+                                IconButton(onClick = { viewModel.sposta(luogo, -1) }, enabled = indice > 0) {
+                                    Icon(Icons.Filled.ArrowUpward, contentDescription = "Sposta su")
+                                }
+                                IconButton(onClick = { viewModel.sposta(luogo, 1) }, enabled = indice < luoghiFiltrati.size - 1) {
+                                    Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
                                 }
                                 IconButton(onClick = { luogoDaEliminare = luogo }) {
                                     Icon(Icons.Filled.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)

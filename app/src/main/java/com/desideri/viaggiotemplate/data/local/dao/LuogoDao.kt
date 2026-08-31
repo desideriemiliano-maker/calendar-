@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.Flow
 @androidx.room.Dao
 interface LuogoDao {
 
-    @Query("SELECT * FROM luogo ORDER BY nome COLLATE NOCASE")
+    @Query("SELECT * FROM luogo ORDER BY ordine")
     fun osservaTutti(): Flow<List<LuogoEntity>>
 
     @Query("SELECT * FROM luogo WHERE id = :id")
@@ -31,4 +31,7 @@ interface LuogoDao {
 
     @Delete
     suspend fun elimina(luogo: LuogoEntity)
+
+    @Query("UPDATE luogo SET ordine = :ordine WHERE id = :id")
+    suspend fun aggiornaOrdine(id: String, ordine: Int)
 }
