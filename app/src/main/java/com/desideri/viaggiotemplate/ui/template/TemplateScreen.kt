@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
@@ -54,8 +55,10 @@ import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
+import com.desideri.viaggiotemplate.ui.common.AzioneMenuCard
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
+import com.desideri.viaggiotemplate.ui.common.MenuAzioniCard
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
 import com.desideri.viaggiotemplate.ui.common.SelettoreNotificaConEreditarieta
 import com.desideri.viaggiotemplate.ui.mappa.TemplateMappaScreen
@@ -193,18 +196,23 @@ private fun ListaTemplate(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    IconButton(onClick = { onVisualizzaMappa(entity) }) {
-                        Icon(Icons.Filled.Map, contentDescription = "Visualizza su mappa")
-                    }
                     IconButton(onClick = { onSposta(entity, -1) }, enabled = indice > 0) {
                         Icon(Icons.Filled.ArrowUpward, contentDescription = "Sposta su")
                     }
                     IconButton(onClick = { onSposta(entity, 1) }, enabled = indice < templateFiltrati.size - 1) {
                         Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
                     }
-                    IconButton(onClick = { templateDaEliminare = entity }) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Elimina", tint = androidx.compose.material3.MaterialTheme.colorScheme.error)
-                    }
+                    MenuAzioniCard(
+                        listOf(
+                            AzioneMenuCard("Modifica", Icons.Filled.Edit, onClick = { onModifica(entity) }),
+                            AzioneMenuCard("Visualizza su mappa", Icons.Filled.Map, onClick = { onVisualizzaMappa(entity) }),
+                            AzioneMenuCard(
+                                "Elimina", Icons.Filled.Delete,
+                                onClick = { templateDaEliminare = entity },
+                                tint = androidx.compose.material3.MaterialTheme.colorScheme.error
+                            )
+                        )
+                    )
                 }
             }
         }

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Flight
@@ -60,8 +61,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
+import com.desideri.viaggiotemplate.ui.common.AzioneMenuCard
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
+import com.desideri.viaggiotemplate.ui.common.MenuAzioniCard
 import com.desideri.viaggiotemplate.ui.mappa.TrattaMappaScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -250,15 +253,18 @@ private fun ListaTratte(
                         IconButton(onClick = { onSposta(tratta, 1) }, enabled = indice < tratteFiltrate.size - 1) {
                             Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
                         }
-                        IconButton(onClick = { onVisualizzaMappa(tratta) }) {
-                            Icon(Icons.Filled.Map, contentDescription = "Visualizza su mappa")
-                        }
-                        IconButton(onClick = { onClona(tratta) }) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = "Clona")
-                        }
-                        IconButton(onClick = { trattaDaEliminare = tratta }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)
-                        }
+                        MenuAzioniCard(
+                            listOf(
+                                AzioneMenuCard("Modifica", Icons.Filled.Edit, onClick = { onModifica(tratta) }),
+                                AzioneMenuCard("Visualizza su mappa", Icons.Filled.Map, onClick = { onVisualizzaMappa(tratta) }),
+                                AzioneMenuCard("Clona", Icons.Filled.ContentCopy, onClick = { onClona(tratta) }),
+                                AzioneMenuCard(
+                                    "Elimina", Icons.Filled.Delete,
+                                    onClick = { trattaDaEliminare = tratta },
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            )
+                        )
                     }
                     val luoghi = if (tratta.tipo == TipoTratta.RIUNIONE) {
                         tratta.luogoPartenza
