@@ -71,6 +71,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
 import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.domain.calendar.avviaNavigazioneAuto
+import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogSelettoreData
 import java.time.DayOfWeek
@@ -93,7 +94,7 @@ private data class GruppoEsecuzioni(val chiave: String, val etichetta: String, v
 private fun raggruppaPerSettimana(risultati: List<EsecuzioneCreata>, oggi: LocalDate = LocalDate.now()): List<GruppoEsecuzioni> {
     if (risultati.isEmpty()) return emptyList()
 
-    fun data(esecuzione: EsecuzioneCreata) = esecuzione.inizioPrimoEvento.atZone(ZoneId.systemDefault()).toLocalDate()
+    fun data(esecuzione: EsecuzioneCreata) = esecuzione.dataViaggio()
     fun inizioSettimana(data: LocalDate) = data.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
     fun chiaveSettimana(data: LocalDate) = data.get(IsoFields.WEEK_BASED_YEAR) to data.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)
 

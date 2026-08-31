@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.History
@@ -44,6 +45,9 @@ import com.desideri.viaggiotemplate.ui.backup.BackupDriveHost
 import com.desideri.viaggiotemplate.ui.backup.BackupDriveViewModel
 import com.desideri.viaggiotemplate.ui.backup.BackupDriveViewModelFactory
 import com.desideri.viaggiotemplate.ui.esecuzione.EsecuzioneScreen
+import com.desideri.viaggiotemplate.ui.eventicreati.EliminaPassatiHost
+import com.desideri.viaggiotemplate.ui.eventicreati.EliminaPassatiViewModel
+import com.desideri.viaggiotemplate.ui.eventicreati.EliminaPassatiViewModelFactory
 import com.desideri.viaggiotemplate.ui.eventicreati.EventiCreatiScreen
 import com.desideri.viaggiotemplate.ui.impostazioni.DialogCalendario
 import com.desideri.viaggiotemplate.ui.impostazioni.DialogVersioni
@@ -69,6 +73,7 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val impostazioniViewModel: ImpostazioniViewModel = viewModel(factory = ImpostazioniViewModelFactory.get())
     val backupDriveViewModel: BackupDriveViewModel = viewModel(factory = BackupDriveViewModelFactory.get())
+    val eliminaPassatiViewModel: EliminaPassatiViewModel = viewModel(factory = EliminaPassatiViewModelFactory.get())
     val activity = LocalContext.current as? Activity
 
     var menuEspanso by remember { mutableStateOf(false) }
@@ -119,6 +124,11 @@ fun AppNavigation() {
                             text = { Text("Ripristina da Drive") },
                             leadingIcon = { Icon(Icons.Filled.CloudDownload, contentDescription = null) },
                             onClick = { menuEspanso = false; activity?.let { backupDriveViewModel.avviaRipristino(it) } }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Elimina eventi passati") },
+                            leadingIcon = { Icon(Icons.Filled.DeleteSweep, contentDescription = null) },
+                            onClick = { menuEspanso = false; eliminaPassatiViewModel.avvia() }
                         )
                         HorizontalDivider()
                         DropdownMenuItem(
@@ -173,6 +183,7 @@ fun AppNavigation() {
         DialogVersioni(onDismiss = { mostraVersioni = false })
     }
     BackupDriveHost(viewModel = backupDriveViewModel)
+    EliminaPassatiHost(viewModel = eliminaPassatiViewModel)
     if (mostraConfermaUscita) {
         AlertDialog(
             onDismissRequest = { mostraConfermaUscita = false },

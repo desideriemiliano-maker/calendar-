@@ -8,6 +8,8 @@ import com.desideri.viaggiotemplate.domain.calendar.CalendarWriter
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
 import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
+import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
+import com.desideri.viaggiotemplate.domain.calendar.passata
 import com.desideri.viaggiotemplate.repository.EsecuzioneCreataRepository
 import com.desideri.viaggiotemplate.ui.AppContainer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,7 +17,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import java.time.ZoneId
 
 data class StatoEventiCreati(
     val esecuzioni: List<EsecuzioneCreata> = emptyList(),
@@ -34,9 +35,8 @@ data class StatoEventiCreati(
     val risultati: List<EsecuzioneCreata>
         get() = esecuzioni
             .filter { esecuzione ->
-                val dataEsecuzione = esecuzione.inizioPrimoEvento.atZone(ZoneId.systemDefault()).toLocalDate()
-                (filtroData == null || dataEsecuzione == filtroData) &&
-                    (mostraPassati || !dataEsecuzione.isBefore(LocalDate.now()))
+                (filtroData == null || esecuzione.dataViaggio() == filtroData) &&
+                    (mostraPassati || !esecuzione.passata())
             }
             .let { lista -> if (ordineAscendente) lista.sortedBy { it.inizioPrimoEvento } else lista.sortedByDescending { it.inizioPrimoEvento } }
 
