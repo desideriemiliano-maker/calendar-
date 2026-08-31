@@ -96,11 +96,15 @@ fun TemplateScreen(viewModel: TemplateViewModel = viewModel(factory = TemplateVi
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                templateInModifica = Template(id = viewModel.nuovoId(), nome = "", slots = emptyList(), ordine = viewModel.prossimoOrdine())
-                mostraEditor = true
-            }) {
-                Icon(Icons.Filled.Add, contentDescription = "Nuovo template")
+            // Visibile solo sulla lista: sopra la mappa (e sopra l'editor) non ha senso, e in
+            // editor cliccarlo scarterebbe silenziosamente le modifiche in corso aprendone uno nuovo.
+            if (!mostraEditor && !mostraMappa) {
+                FloatingActionButton(onClick = {
+                    templateInModifica = Template(id = viewModel.nuovoId(), nome = "", slots = emptyList(), ordine = viewModel.prossimoOrdine())
+                    mostraEditor = true
+                }) {
+                    Icon(Icons.Filled.Add, contentDescription = "Nuovo template")
+                }
             }
         }
     ) { padding ->
