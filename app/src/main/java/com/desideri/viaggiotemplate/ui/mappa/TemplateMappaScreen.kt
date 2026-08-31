@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Point
+import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.location.Geocoder
@@ -40,7 +42,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.desideri.viaggiotemplate.BuildConfig
-import com.desideri.viaggiotemplate.domain.mappa.sequenzaIdLuoghi
+import com.desideri.viaggiotemplate.domain.mappa.risolviPercorso
 import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.Tratta
@@ -52,63 +54,90 @@ import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.views.overlay.Polyline
 import java.io.File
 import java.util.Locale
 
-/** Una tappa del template già geolocalizzata (coordinate dirette o geocodificate), pronta per il marker. */
+/** Un nodo del percorso già geolocalizzato (coordinate dirette o geocodificate), pronto per il marker. */
 private data class TappaGeolocalizzata(
     val numero: Int,
     val luogo: Luogo,
     val lat: Double,
-    val lng: Double
+    val lng: Double,
+    /** Attesa configurata in questo luogo (vedi [com.desideri.viaggiotemplate.domain.mappa.NodoPercorso]); null = da omettere. */
+    val attesaMinuti: Int?
 )
 
-/**
- * Esito della risoluzione delle tappe di un template: quali sono posizionabili su mappa e, per
- * onestà verso l'utente, quante e perché non lo sono (nessuna coordinata/indirizzo, oppure
- * indirizzo presente ma non geocodificabile su questo dispositivo).
- */
+/** Un arco già geolocalizzato tra due tappe consecutivamente mostrate (possono non essere nodi adiacenti nel percorso originale, se uno intermedio è stato escluso). */
+private data class SegmentoGeolocalizzato(
+    val da: GeoPoint,
+    val a: GeoPoint,
+    /** Durata della tratta diretta tra i due punti; null se non determinabile (TRENO/AEREO, salto, o un nodo intermedio escluso) — vedi [com.desideri.viaggiotemplate.domain.mappa.ArcoPercorso]. */
+    val durataMinuti: Int?
+)
+
 private data class RisoluzioneMappa(
     val tappe: List<TappaGeolocalizzata>,
+    val segmenti: List<SegmentoGeolocalizzato>,
     val senzaDati: Int,
     val geocodingFallito: Int
 )
 
+private data class NodoRisolto(val luogo: Luogo, val lat: Double, val lng: Double)
+
 /**
- * Risolve la sequenza di luoghi del template in coordinate mostrabili su mappa. Per i luoghi con
- * coordinate GPS già salvate le usa direttamente; per quelli con solo un indirizzo tenta un
- * geocoding "best effort" con [Geocoder] (integrato in Android, gratuito, ma non garantito su
- * tutti i dispositivi — alcuni non hanno il servizio di geocoding di sistema disponibile). Se
- * anche questo fallisce, o se il luogo non ha né coordinate né indirizzo, la tappa viene esclusa e
- * conteggiata (mai un errore silenzioso: l'utente vede sempre quante tappe mancano e perché).
+ * Risolve il percorso del template (vedi [risolviPercorso]) in coordinate mostrabili su mappa. Per
+ * i luoghi con coordinate GPS già salvate le usa direttamente; per quelli con solo un indirizzo
+ * tenta un geocoding "best effort" con [Geocoder] (integrato in Android, gratuito, ma non garantito
+ * su tutti i dispositivi). Se anche questo fallisce, o se il luogo non ha né coordinate né
+ * indirizzo, il nodo viene escluso e conteggiato (mai un errore silenzioso).
+ *
+ * Un nodo intermedio escluso "salta" semplicemente il segmento: la linea retta successiva collega
+ * direttamente i due punti mostrabili più vicini, ma senza durata etichettata (non c'è una singola
+ * tratta a spiegare quel segmento combinato).
  */
 private suspend fun risolviMappa(context: Context, template: Template, tratte: List<Tratta>, luoghi: List<Luogo>): RisoluzioneMappa {
+    val percorso = risolviPercorso(template, tratte)
     val luoghiPerId = luoghi.associateBy { it.id }
     val geocoder = if (Geocoder.isPresent()) Geocoder(context, Locale.getDefault()) else null
 
-    val tappe = mutableListOf<TappaGeolocalizzata>()
     var senzaDati = 0
     var geocodingFallito = 0
 
-    sequenzaIdLuoghi(template, tratte).forEach { id ->
-        val luogo = luoghiPerId[id] ?: return@forEach
-        val lat = luogo.latitudine
-        val lng = luogo.longitudine
+    val risolti: List<NodoRisolto?> = percorso.nodi.map { nodo ->
+        val luogo = luoghiPerId[nodo.luogoId]
+        val lat = luogo?.latitudine
+        val lng = luogo?.longitudine
         when {
-            lat != null && lng != null -> tappe += TappaGeolocalizzata(tappe.size + 1, luogo, lat, lng)
+            luogo == null -> { senzaDati++; null }
+            lat != null && lng != null -> NodoRisolto(luogo, lat, lng)
             !luogo.indirizzo.isNullOrBlank() -> {
                 val geocodificato = geocodificaBestEffort(geocoder, luogo.indirizzo)
-                if (geocodificato != null) {
-                    tappe += TappaGeolocalizzata(tappe.size + 1, luogo, geocodificato.first, geocodificato.second)
-                } else {
-                    geocodingFallito++
-                }
+                if (geocodificato != null) NodoRisolto(luogo, geocodificato.first, geocodificato.second)
+                else { geocodingFallito++; null }
             }
-            else -> senzaDati++
+            else -> { senzaDati++; null }
         }
     }
-    return RisoluzioneMappa(tappe, senzaDati, geocodingFallito)
+
+    val indiciValidi = risolti.indices.filter { risolti[it] != null }
+    val tappe = indiciValidi.mapIndexed { pos, indiceOriginale ->
+        val risolto = risolti[indiceOriginale]!!
+        TappaGeolocalizzata(pos + 1, risolto.luogo, risolto.lat, risolto.lng, percorso.nodi[indiceOriginale].attesaMinuti)
+    }
+    val segmenti = (0 until indiciValidi.size - 1).map { pos ->
+        val i0 = indiciValidi[pos]
+        val i1 = indiciValidi[pos + 1]
+        val r0 = risolti[i0]!!
+        val r1 = risolti[i1]!!
+        // La durata è nota solo se non abbiamo saltato nessun nodo escluso tra i due (i1 == i0 + 1):
+        // altrimenti il segmento disegnato copre più di un arco originale, e nessuna singola tratta lo spiega.
+        val durata = if (i1 == i0 + 1) percorso.archi.getOrNull(i0)?.durataMinuti else null
+        SegmentoGeolocalizzato(GeoPoint(r0.lat, r0.lng), GeoPoint(r1.lat, r1.lng), durata)
+    }
+
+    return RisoluzioneMappa(tappe, segmenti, senzaDati, geocodingFallito)
 }
 
 /**
@@ -130,12 +159,24 @@ private suspend fun geocodificaBestEffort(geocoder: Geocoder?, indirizzo: String
         }
     }
 
+/** Formatta minuti in "1h 25m" / "40m" / "2h", senza mai mostrare zero implicito su una parte assente. */
+private fun formattaDurataMinuti(minuti: Int): String {
+    val ore = minuti / 60
+    val resto = minuti % 60
+    return when {
+        ore == 0 -> "${resto}m"
+        resto == 0 -> "${ore}h"
+        else -> "${ore}h ${resto}m"
+    }
+}
+
 /**
  * Vista mappa (OpenStreetMap via osmdroid) dei luoghi di un template: marker numerati nell'ordine
- * di viaggio, collegati da linee rette. Nessun itinerario reale: le tratte di questo template
- * possono essere treno/aereo/auto/a piedi, e Maps/OSM non permettono di rappresentare un percorso
- * con modalità di trasporto miste in un solo tracciato — qui si mostra solo la sequenza geografica
- * delle tappe, non le indicazioni per raggiungerle.
+ * di viaggio, collegati da linee rette, con durata sulle linee e attesa sui luoghi dove è nota.
+ * Nessun itinerario reale: le tratte di questo template possono essere treno/aereo/auto/a piedi, e
+ * Maps/OSM non permettono di rappresentare un percorso con modalità di trasporto miste in un solo
+ * tracciato — qui si mostra solo la sequenza geografica delle tappe, non le indicazioni per
+ * raggiungerle.
  */
 @Composable
 fun TemplateMappaScreen(
@@ -173,7 +214,7 @@ fun TemplateMappaScreen(
                 if (esito.senzaDati > 0 || esito.geocodingFallito > 0) {
                     BannerTappeEscluse(esito.senzaDati, esito.geocodingFallito)
                 }
-                MappaOsm(tappe = esito.tappe, modifier = Modifier.fillMaxWidth().weight(1f))
+                MappaOsm(esito = esito, modifier = Modifier.fillMaxWidth().weight(1f))
             }
         }
     }
@@ -209,13 +250,22 @@ private fun BannerTappeEscluse(senzaDati: Int, geocodingFallito: Int) {
 }
 
 /**
+ * Soglia di zoom di osmdroid sotto la quale le etichette di durata/attesa vengono nascoste: a zoom
+ * bassi (template su scala regionale/nazionale) i marker sono troppo vicini tra loro sullo schermo
+ * e il testo diventerebbe illeggibile, sovrapposto. Sopra la soglia, le etichette compaiono anche
+ * su uno sfondo semitrasparente (vedi [OverlayEtichette]) per restare leggibili sopra qualunque
+ * tile di sfondo: le due misure insieme, non l'una in alternativa all'altra.
+ */
+private const val SOGLIA_ZOOM_ETICHETTE = 11.0
+
+/**
  * Il MapView osmdroid, come qualunque View Android embeddata via AndroidView, va agganciata al
  * ciclo di vita (onResume/onPause) per non continuare a scaricare tile in background e non
  * perdere risorse quando la schermata è nascosta; onDetach() al rilascio libera la cache in RAM
  * dei tile di questa istanza.
  */
 @Composable
-private fun MappaOsm(tappe: List<TappaGeolocalizzata>, modifier: Modifier) {
+private fun MappaOsm(esito: RisoluzioneMappa, modifier: Modifier) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
@@ -242,7 +292,7 @@ private fun MappaOsm(tappe: List<TappaGeolocalizzata>, modifier: Modifier) {
                 mapViewRef = this
             }
         },
-        update = { mapView -> aggiornaOverlay(mapView, tappe) },
+        update = { mapView -> aggiornaOverlay(mapView, esito) },
         onRelease = { it.onDetach() }
     )
 }
@@ -261,8 +311,9 @@ private fun configuraOsmdroid(context: Context) {
     }
 }
 
-private fun aggiornaOverlay(mapView: MapView, tappe: List<TappaGeolocalizzata>) {
+private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
     mapView.overlays.clear()
+    val tappe = esito.tappe
     val punti = tappe.map { GeoPoint(it.lat, it.lng) }
 
     if (punti.size >= 2) {
@@ -286,6 +337,19 @@ private fun aggiornaOverlay(mapView: MapView, tappe: List<TappaGeolocalizzata>) 
         )
     }
 
+    val etichetteSegmento = esito.segmenti.mapNotNull { segmento ->
+        segmento.durataMinuti?.let { minuti ->
+            val medio = GeoPoint((segmento.da.latitude + segmento.a.latitude) / 2, (segmento.da.longitude + segmento.a.longitude) / 2)
+            medio to formattaDurataMinuti(minuti)
+        }
+    }
+    val etichetteNodo = tappe.mapNotNull { tappa ->
+        tappa.attesaMinuti?.let { minuti -> GeoPoint(tappa.lat, tappa.lng) to "Attesa ${formattaDurataMinuti(minuti)}" }
+    }
+    if (etichetteSegmento.isNotEmpty() || etichetteNodo.isNotEmpty()) {
+        mapView.overlays.add(OverlayEtichette(etichetteSegmento, etichetteNodo))
+    }
+
     mapView.invalidate()
     mapView.post {
         when {
@@ -295,6 +359,54 @@ private fun aggiornaOverlay(mapView: MapView, tappe: List<TappaGeolocalizzata>) 
             }
             punti.size >= 2 -> mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(punti), false, 128)
         }
+    }
+}
+
+/**
+ * Overlay unico per le etichette di durata (sui segmenti) e attesa (sui nodi): un `Overlay`
+ * osmdroid ridisegna ad ogni frame, quindi legge lo zoom corrente direttamente in `draw()` invece
+ * di dover propagare lo stato dello zoom fino a Compose solo per nascondere/mostrare il testo.
+ * Sotto [SOGLIA_ZOOM_ETICHETTE] non disegna nulla; sopra, disegna ogni etichetta su un fondino
+ * semitrasparente per restare leggibile sopra qualunque tile.
+ */
+private class OverlayEtichette(
+    private val etichetteSegmento: List<Pair<GeoPoint, String>>,
+    private val etichetteNodo: List<Pair<GeoPoint, String>>
+) : Overlay() {
+    private val paintSfondo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(190, 0, 0, 0) }
+    private val paintTesto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+    }
+
+    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+        if (shadow || mapView.zoomLevelDouble < SOGLIA_ZOOM_ETICHETTE) return
+        paintTesto.textSize = 12f * mapView.context.resources.displayMetrics.density
+        val proiezione = mapView.projection
+        val punto = Point()
+
+        etichetteSegmento.forEach { (geo, testo) ->
+            proiezione.toPixels(geo, punto)
+            disegnaEtichetta(canvas, punto.x.toFloat(), punto.y.toFloat(), testo)
+        }
+        val offsetNodo = 34f * mapView.context.resources.displayMetrics.density
+        etichetteNodo.forEach { (geo, testo) ->
+            proiezione.toPixels(geo, punto)
+            disegnaEtichetta(canvas, punto.x.toFloat(), punto.y.toFloat() + offsetNodo, testo)
+        }
+    }
+
+    private fun disegnaEtichetta(canvas: Canvas, cx: Float, cy: Float, testo: String) {
+        val larghezzaTesto = paintTesto.measureText(testo)
+        val padding = paintTesto.textSize * 0.4f
+        val rect = RectF(
+            cx - larghezzaTesto / 2 - padding,
+            cy - paintTesto.textSize / 2 - padding / 2,
+            cx + larghezzaTesto / 2 + padding,
+            cy + paintTesto.textSize / 2 + padding / 2
+        )
+        canvas.drawRoundRect(rect, padding, padding, paintSfondo)
+        canvas.drawText(testo, cx, cy + paintTesto.textSize / 3, paintTesto)
     }
 }
 
