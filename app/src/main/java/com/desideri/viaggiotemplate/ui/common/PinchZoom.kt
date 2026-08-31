@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,35 +59,58 @@ const val ZOOM_UI_DEFAULT = 1f
  *
  * Reset a 1x: niente doppio tap globale (richiederebbe far attendere ~300ms ad ogni singolo tocco
  * in tutta l'app, per distinguerlo da un eventuale secondo tap — latenza percepibile su ogni
- * bottone). Un piccolo chip compare invece in basso a destra quando lo zoom non è 1x, a dimensione
- * fissa (dichiarato fuori dal CompositionLocalProvider) così resta un bersaglio comodo a qualunque
- * livello di zoom.
+ * bottone). Un piccolo chip compare invece in basso a destra quando lo zoom è abilitato e diverso
+ * da 1x, a dimensione fissa (dichiarato fuori dal CompositionLocalProvider) così resta un bersaglio
+ * comodo a qualunque livello di zoom.
+ *
+ * Disabilitato di default: una voce nel menu principale lo abilita quando serve (vedi
+ * [content], che riceve lo stato corrente e la funzione per alternarlo). Da disabilitato il
+ * rilevatore del gesto non è nemmeno collegato (il ramo `else` del `Modifier.then` sotto non
+ * aggiunge nessun `pointerInput`): nessun costo, nessuna interferenza con i tocchi, non è solo il
+ * gesto ad essere ignorato. Il fattore di zoom memorizzato NON viene azzerato quando si disabilita
+ * — resta la preferenza dell'utente per quando riattiva — ma da disabilitato la densità applicata
+ * è sempre quella di base, quindi l'utente non resta mai bloccato con l'interfaccia zoomata: basta
+ * il toggle per tornare visivamente a 1x, senza dover prima azzerare il fattore a parte.
  */
 @Composable
-fun ZoomableRoot(content: @Composable () -> Unit) {
+fun ZoomableRoot(content: @Composable (abilitato: Boolean, onAlternaAbilitato: () -> Unit) -> Unit) {
     val store = AppContainer.impostazioniStore
+    var abilitato by remember { mutableStateOf(store.pinchZoomAbilitato) }
     var fattore by remember { mutableFloatStateOf(store.fattoreZoomUi.coerceIn(ZOOM_UI_MINIMO, ZOOM_UI_MASSIMO)) }
 
     val densitaBase = LocalDensity.current
-    val densitaScalata = remember(densitaBase, fattore) {
-        Density(density = densitaBase.density * fattore, fontScale = densitaBase.fontScale * fattore)
+    val densitaEffettiva = if (abilitato) {
+        remember(densitaBase, fattore) {
+            Density(density = densitaBase.density * fattore, fontScale = densitaBase.fontScale * fattore)
+        }
+    } else {
+        densitaBase
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
-                rilevaPinchZoom(
-                    onVariazione = { delta -> fattore = (fattore * delta).coerceIn(ZOOM_UI_MINIMO, ZOOM_UI_MASSIMO) },
-                    onFineGesto = { store.fattoreZoomUi = fattore }
-                )
-            }
+            .then(
+                if (abilitato) {
+                    Modifier.pointerInput(Unit) {
+                        rilevaPinchZoom(
+                            onVariazione = { delta -> fattore = (fattore * delta).coerceIn(ZOOM_UI_MINIMO, ZOOM_UI_MASSIMO) },
+                            onFineGesto = { store.fattoreZoomUi = fattore }
+                        )
+                    }
+                } else {
+                    Modifier
+                }
+            )
     ) {
-        CompositionLocalProvider(LocalDensity provides densitaScalata) {
-            content()
+        CompositionLocalProvider(LocalDensity provides densitaEffettiva) {
+            content(abilitato) {
+                abilitato = !abilitato
+                store.pinchZoomAbilitato = abilitato
+            }
         }
 
-        if (fattore != ZOOM_UI_DEFAULT) {
+        if (abilitato && fattore != ZOOM_UI_DEFAULT) {
             ChipResetZoom(
                 percentuale = (fattore * 100).toInt(),
                 onClick = {

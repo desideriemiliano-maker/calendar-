@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -25,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -69,7 +71,7 @@ private val sezioni = listOf(Sezione.EventiCreati, Sezione.Luoghi, Sezione.Tratt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppNavigation() {
+fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
     val navController = rememberNavController()
     val impostazioniViewModel: ImpostazioniViewModel = viewModel(factory = ImpostazioniViewModelFactory.get())
     val backupDriveViewModel: BackupDriveViewModel = viewModel(factory = BackupDriveViewModelFactory.get())
@@ -113,6 +115,16 @@ fun AppNavigation() {
                             text = { Text("Calendario") },
                             leadingIcon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
                             onClick = { menuEspanso = false; mostraCalendario = true }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Pinch-to-zoom") },
+                            leadingIcon = { Icon(Icons.Filled.ZoomIn, contentDescription = null) },
+                            // Lo switch è solo indicativo (onCheckedChange = null): il tocco su tutta la riga
+                            // alterna lo stato tramite onClick, per evitare un doppio toggle se anche lo switch
+                            // rispondesse al tocco per conto suo. Il menu resta aperto dopo il tocco, così si
+                            // vede subito il nuovo stato invece di doverlo riaprire per controllarlo.
+                            trailingIcon = { Switch(checked = pinchZoomAbilitato, onCheckedChange = null) },
+                            onClick = onAlternaPinchZoom
                         )
                         HorizontalDivider()
                         DropdownMenuItem(

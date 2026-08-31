@@ -15,8 +15,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier) {
-                    ZoomableRoot {
-                        AppNavigation()
+                    ZoomableRoot { pinchZoomAbilitato, onAlternaPinchZoom ->
+                        AppNavigation(pinchZoomAbilitato = pinchZoomAbilitato, onAlternaPinchZoom = onAlternaPinchZoom)
                     }
                 }
             }

@@ -21,8 +21,14 @@ class ImpostazioniStore(context: Context) {
         get() = prefs.getFloat(CHIAVE_FATTORE_ZOOM, 1f)
         set(value) = prefs.edit().putFloat(CHIAVE_FATTORE_ZOOM, value).apply()
 
+    /** True se il gesto di pinch-to-zoom è attivo: disattivato di default (voce nel menu principale). */
+    var pinchZoomAbilitato: Boolean
+        get() = prefs.getBoolean(CHIAVE_PINCH_ZOOM_ABILITATO, false)
+        set(value) = prefs.edit().putBoolean(CHIAVE_PINCH_ZOOM_ABILITATO, value).apply()
+
     private companion object {
         const val CHIAVE_CALENDARIO_ID = "calendario_selezionato_id"
         const val CHIAVE_FATTORE_ZOOM = "fattore_zoom_ui"
+        const val CHIAVE_PINCH_ZOOM_ABILITATO = "pinch_zoom_abilitato"
     }
 }
