@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Point
 import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
@@ -79,8 +80,20 @@ private data class SegmentoGeolocalizzato(
     /** Durata (certa o indicativa); null se non determinabile — un nodo intermedio escluso, o una tratta TRENO/AEREO senza alcun orario configurato. */
     val durataMinuti: Int?,
     val durataIndicativa: Boolean,
-    /** Tipo della tratta di questo arco, per spiegare sulla linea perché non c'è una durata quando [durataMinuti] è null per mancanza di dati (non per un nodo escluso). */
+    /**
+     * Tipo della tratta di questo arco (null solo per un "salto" senza tratta diretta): mostrato
+     * sempre come icona sull'arco accanto alla durata, non solo quando la durata manca — vedi
+     * [EtichettaSegmento].
+     */
     val tipoTratta: TipoTratta?
+)
+
+/** Etichetta di un arco: icona del tipo sempre presente, durata accanto quando nota. */
+private data class EtichettaSegmento(
+    val da: GeoPoint,
+    val a: GeoPoint,
+    val tipo: TipoTratta,
+    val testoDurata: String?
 )
 
 private data class RisoluzioneMappa(
@@ -386,14 +399,12 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
     }
 
     val etichetteSegmento = esito.segmenti.mapNotNull { segmento ->
-        val testo = when {
-            segmento.durataMinuti != null -> (if (segmento.durataIndicativa) "~" else "") + formattaDurataMinuti(segmento.durataMinuti)
-            // Nessuna durata determinabile ma sappiamo il tipo (TRENO/AEREO senza alcun orario
-            // configurato): mostriamo il tipo sull'arco invece di lasciarlo muto senza spiegazione.
-            segmento.tipoTratta != null -> segmento.tipoTratta.name
-            else -> null
+        // tipoTratta è null solo per un "salto" (nessuna tratta diretta): niente da etichettare.
+        val tipo = segmento.tipoTratta ?: return@mapNotNull null
+        val testoDurata = segmento.durataMinuti?.let { minuti ->
+            (if (segmento.durataIndicativa) "~" else "") + formattaDurataMinuti(minuti)
         }
-        testo?.let { Triple(segmento.da, segmento.a, it) }
+        EtichettaSegmento(segmento.da, segmento.a, tipo, testoDurata)
     }
     val etichetteNodo = tappe.mapNotNull { tappa ->
         tappa.attesaMinuti?.let { minuti -> GeoPoint(tappa.lat, tappa.lng) to "Attesa ${formattaDurataMinuti(minuti)}" }
@@ -430,7 +441,7 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
  * quando l'intera linea è fuori dallo schermo (nulla da etichettare).
  */
 private class OverlayEtichette(
-    private val etichetteSegmento: List<Triple<GeoPoint, GeoPoint, String>>,
+    private val etichetteSegmento: List<EtichettaSegmento>,
     private val etichetteNodo: List<Pair<GeoPoint, String>>
 ) : Overlay() {
     private val paintSfondo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(190, 0, 0, 0) }
@@ -438,32 +449,42 @@ private class OverlayEtichette(
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
     }
+    private val paintIconaRiempita = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val paintIconaTratto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || mapView.zoomLevelDouble < SOGLIA_ZOOM_ETICHETTE) return
-        paintTesto.textSize = 12f * mapView.context.resources.displayMetrics.density
+        val densita = mapView.context.resources.displayMetrics.density
+        paintTesto.textSize = 12f * densita
+        paintIconaTratto.strokeWidth = 1.6f * densita
         val proiezione = mapView.projection
         val larghezza = mapView.width.toFloat()
         val altezza = mapView.height.toFloat()
         val p0 = Point()
         val p1 = Point()
 
-        etichetteSegmento.forEach { (da, a, testo) ->
-            proiezione.toPixels(da, p0)
-            proiezione.toPixels(a, p1)
+        etichetteSegmento.forEach { etichetta ->
+            proiezione.toPixels(etichetta.da, p0)
+            proiezione.toPixels(etichetta.a, p1)
             val visibile = clipSegmentoAlViewport(p0.x.toFloat(), p0.y.toFloat(), p1.x.toFloat(), p1.y.toFloat(), larghezza, altezza)
             if (visibile != null) {
-                disegnaEtichetta(canvas, (visibile[0] + visibile[2]) / 2, (visibile[1] + visibile[3]) / 2, testo)
+                disegnaEtichettaSegmento(canvas, (visibile[0] + visibile[2]) / 2, (visibile[1] + visibile[3]) / 2, etichetta.tipo, etichetta.testoDurata)
             }
         }
-        val offsetNodo = 34f * mapView.context.resources.displayMetrics.density
+        val offsetNodo = 34f * densita
         etichetteNodo.forEach { (geo, testo) ->
             proiezione.toPixels(geo, p0)
-            disegnaEtichetta(canvas, p0.x.toFloat(), p0.y.toFloat() + offsetNodo, testo)
+            disegnaEtichettaTesto(canvas, p0.x.toFloat(), p0.y.toFloat() + offsetNodo, testo)
         }
     }
 
-    private fun disegnaEtichetta(canvas: Canvas, cx: Float, cy: Float, testo: String) {
+    /** Etichetta di un nodo (attesa): solo testo su fondino, come prima. */
+    private fun disegnaEtichettaTesto(canvas: Canvas, cx: Float, cy: Float, testo: String) {
         val larghezzaTesto = paintTesto.measureText(testo)
         val padding = paintTesto.textSize * 0.4f
         val rect = RectF(
@@ -474,6 +495,84 @@ private class OverlayEtichette(
         )
         canvas.drawRoundRect(rect, padding, padding, paintSfondo)
         canvas.drawText(testo, cx, cy + paintTesto.textSize / 3, paintTesto)
+    }
+
+    /**
+     * Etichetta di un arco: icona del tipo sempre presente, testo della durata accanto solo se
+     * nota (vedi [EtichettaSegmento]) — mai un arco muto quando conosciamo almeno il tipo.
+     */
+    private fun disegnaEtichettaSegmento(canvas: Canvas, cx: Float, cy: Float, tipo: TipoTratta, testoDurata: String?) {
+        val dimensioneIcona = paintTesto.textSize
+        val larghezzaTesto = testoDurata?.let { paintTesto.measureText(it) } ?: 0f
+        val spazioIconaTesto = if (testoDurata != null) dimensioneIcona * 0.35f else 0f
+        val padding = paintTesto.textSize * 0.4f
+        val larghezzaContenuto = dimensioneIcona + spazioIconaTesto + larghezzaTesto
+        val altezzaPill = dimensioneIcona + padding
+
+        val rect = RectF(
+            cx - larghezzaContenuto / 2 - padding,
+            cy - altezzaPill / 2,
+            cx + larghezzaContenuto / 2 + padding,
+            cy + altezzaPill / 2
+        )
+        canvas.drawRoundRect(rect, padding, padding, paintSfondo)
+
+        val centroIconaX = rect.left + padding + dimensioneIcona / 2f
+        disegnaIconaTipo(canvas, centroIconaX, cy, dimensioneIcona / 2f, tipo)
+
+        if (testoDurata != null) {
+            val centroTestoX = centroIconaX + dimensioneIcona / 2f + spazioIconaTesto + larghezzaTesto / 2f
+            canvas.drawText(testoDurata, centroTestoX, cy + paintTesto.textSize / 3, paintTesto)
+        }
+    }
+
+    /**
+     * Pittogrammi minimali disegnati a mano (non è possibile rasterizzare un'`ImageVector` di
+     * Compose — come [androidx.compose.material.icons.Icons.Filled.Train] già usata in
+     * `TratteScreen` — fuori dall'albero di composizione, su un `Canvas` nativo osmdroid): stesso
+     * soggetto delle icone Material già in uso altrove nell'app per ciascun tipo, semplificato per
+     * la dimensione ridotta.
+     */
+    private fun disegnaIconaTipo(canvas: Canvas, cx: Float, cy: Float, r: Float, tipo: TipoTratta) {
+        when (tipo) {
+            TipoTratta.TRENO -> {
+                val corpo = RectF(cx - r, cy - r * 0.8f, cx + r, cy + r * 0.5f)
+                canvas.drawRoundRect(corpo, r * 0.3f, r * 0.3f, paintIconaRiempita)
+                canvas.drawCircle(cx - r * 0.4f, cy - r * 0.2f, r * 0.28f, paintSfondo)
+                canvas.drawCircle(cx + r * 0.4f, cy - r * 0.2f, r * 0.28f, paintSfondo)
+                canvas.drawCircle(cx - r * 0.5f, cy + r * 0.65f, r * 0.18f, paintIconaRiempita)
+                canvas.drawCircle(cx + r * 0.5f, cy + r * 0.65f, r * 0.18f, paintIconaRiempita)
+            }
+            TipoTratta.AEREO -> {
+                val path = Path().apply {
+                    moveTo(cx + r, cy)
+                    lineTo(cx - r * 0.6f, cy - r * 0.75f)
+                    lineTo(cx - r * 0.15f, cy)
+                    lineTo(cx - r * 0.6f, cy + r * 0.75f)
+                    close()
+                }
+                canvas.drawPath(path, paintIconaRiempita)
+            }
+            TipoTratta.AUTO -> {
+                val corpo = RectF(cx - r, cy - r * 0.15f, cx + r, cy + r * 0.55f)
+                canvas.drawRoundRect(corpo, r * 0.25f, r * 0.25f, paintIconaRiempita)
+                val cabina = RectF(cx - r * 0.5f, cy - r * 0.75f, cx + r * 0.5f, cy - r * 0.05f)
+                canvas.drawRoundRect(cabina, r * 0.2f, r * 0.2f, paintIconaRiempita)
+                canvas.drawCircle(cx - r * 0.55f, cy + r * 0.6f, r * 0.2f, paintIconaRiempita)
+                canvas.drawCircle(cx + r * 0.55f, cy + r * 0.6f, r * 0.2f, paintIconaRiempita)
+            }
+            TipoTratta.RIUNIONE -> {
+                canvas.drawCircle(cx - r * 0.42f, cy, r * 0.5f, paintIconaRiempita)
+                canvas.drawCircle(cx + r * 0.42f, cy, r * 0.5f, paintIconaRiempita)
+            }
+            TipoTratta.A_PIEDI -> {
+                canvas.drawCircle(cx, cy - r * 0.7f, r * 0.22f, paintIconaRiempita)
+                canvas.drawLine(cx, cy - r * 0.45f, cx, cy + r * 0.15f, paintIconaTratto)
+                canvas.drawLine(cx, cy + r * 0.15f, cx - r * 0.45f, cy + r * 0.75f, paintIconaTratto)
+                canvas.drawLine(cx, cy + r * 0.15f, cx + r * 0.5f, cy + r * 0.55f, paintIconaTratto)
+                canvas.drawLine(cx, cy - r * 0.2f, cx + r * 0.45f, cy - r * 0.5f, paintIconaTratto)
+            }
+        }
     }
 }
 
