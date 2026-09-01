@@ -33,7 +33,7 @@ data class Tratta(
     val arrotondaInizio: Arrotondamento = Arrotondamento.DIFETTO,
     val arrotondaFine: Arrotondamento = Arrotondamento.ECCESSO,
     val stepArrotondamentoMinuti: Int = 10,
-    val titoloTemplate: String = "{oraPartenza} {luogoPartenza} / {luogoArrivo} {oraArrivo}",
+    val titoloTemplate: String = TITOLO_TEMPLATE_DEFAULT,
     val opzioniOrario: List<OpzioneOrario> = emptyList(),
     /**
      * Orari fissi (non ricorrenti) alternativi ai pattern di `opzioniOrario`, solo per TRENO.
@@ -57,6 +57,16 @@ data class Tratta(
     val notifica: Notifica = Notifica.NESSUNA
 ) {
     companion object {
+        /**
+         * Titolo di default per una tratta nuova, unica fonte di verità riusata anche da
+         * `TrattaEditorScreen` per inizializzare il campo "Titolo evento" — evita di avere la
+         * stessa stringa duplicata in due punti, disallineabili a ogni modifica futura.
+         * `{nomeTratta}` è l'unico placeholder che si autoesclude quando vuoto (vedi
+         * [com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato.titolo]): produce
+         * "(Nome)" quando la tratta ha un nome, stringa vuota altrimenti — mai parentesi vuote.
+         */
+        const val TITOLO_TEMPLATE_DEFAULT = "{oraPartenza} {luogoPartenza} / {luogoArrivo} {oraArrivo} {nomeTratta}"
+
         /** Margine di default suggerito in base al tipo, coerente con quanto validato negli strumenti HTML. */
         fun margineDefaultPerTipo(tipo: TipoTratta): Int = when (tipo) {
             TipoTratta.TRENO -> 20

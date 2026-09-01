@@ -690,13 +690,16 @@ private fun CardEvento(
                     Icon(Icons.Filled.Delete, contentDescription = "Rimuovi questa tratta", tint = MaterialTheme.colorScheme.error)
                 }
             }
-            // Il titolo sopra è generato da Tratta.titoloTemplate (default "{oraPartenza}
-            // {luogoPartenza} / {luogoArrivo} {oraArrivo}") e non include mai il nome della Tratta
-            // stessa — l'unico campo identificativo/descrittivo che ha (non esiste un campo
-            // "descrizione" separato sul modello). Su riga propria invece che accodato al titolo:
-            // il titolo generato è già lungo e va spesso a capo da solo, appenderci altro in linea
-            // lo renderebbe illeggibile accanto all'icona di eliminazione.
-            if (evento.tratta.nome.isNotBlank()) {
+            // Il titolo sopra è generato da Tratta.titoloTemplate: il default (vedi
+            // Tratta.TITOLO_TEMPLATE_DEFAULT) include già il placeholder {nomeTratta}, ma una
+            // tratta con un titoloTemplate personalizzato senza quel placeholder (es. tratte
+            // esistenti create prima della sua introduzione) non lo mostrerebbe — qui invece va
+            // sempre mostrato, così la card resta un aiuto identificativo affidabile in ogni caso.
+            // Il controllo "non già nel titolo" evita di duplicarlo quando il placeholder c'è già.
+            // Su riga propria invece che accodato al titolo: quello generato è già lungo e va
+            // spesso a capo da solo, appenderci altro in linea lo renderebbe illeggibile accanto
+            // all'icona di eliminazione.
+            if (evento.tratta.nome.isNotBlank() && evento.tratta.nome !in evento.titolo()) {
                 Text(
                     "(${evento.tratta.nome})",
                     style = MaterialTheme.typography.bodySmall,

@@ -28,11 +28,19 @@ data class EventoCalcolato(
      */
     val orarioDaConfermare: Boolean = false
 ) {
+    /**
+     * `{nomeTratta}` si sostituisce con "(Nome)" quando la tratta ha un nome, o con una stringa
+     * vuota quando non ce l'ha — mai parentesi vuote nel titolo finale. Le parentesi sono nel
+     * valore sostituito, non nel template stesso, apposta perché un template con parentesi
+     * letterali intorno al placeholder le lascerebbe comunque vuote in quel caso.
+     */
     fun titolo(): String = tratta.titoloTemplate
         .replace("{oraPartenza}", inizioReale.toStringHHmm())
         .replace("{oraArrivo}", fineReale.toStringHHmm())
         .replace("{luogoPartenza}", tratta.luogoPartenza)
         .replace("{luogoArrivo}", tratta.luogoArrivo)
+        .replace("{nomeTratta}", if (tratta.nome.isNotBlank()) "(${tratta.nome})" else "")
+        .trim()
 }
 
 fun LocalTime.toStringHHmm(): String = "%02d:%02d".format(hour, minute)

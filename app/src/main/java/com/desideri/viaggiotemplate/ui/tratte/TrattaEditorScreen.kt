@@ -98,7 +98,7 @@ fun TrattaEditorScreen(
     var arrotondaFine by remember { mutableStateOf(trattaEsistente?.arrotondaFine ?: Arrotondamento.ECCESSO) }
     var step by remember { mutableStateOf((trattaEsistente?.stepArrotondamentoMinuti ?: 10).toString()) }
     var titoloTemplate by remember {
-        mutableStateOf(trattaEsistente?.titoloTemplate ?: "{oraPartenza} {luogoPartenza} / {luogoArrivo} {oraArrivo}")
+        mutableStateOf(trattaEsistente?.titoloTemplate ?: Tratta.TITOLO_TEMPLATE_DEFAULT)
     }
     var opzioni by remember { mutableStateOf(trattaEsistente?.opzioniOrario ?: emptyList()) }
     var orariFissi by remember { mutableStateOf(trattaEsistente?.orariFissi ?: emptyList()) }
@@ -207,7 +207,7 @@ fun TrattaEditorScreen(
         item {
             OutlinedTextField(
                 value = titoloTemplate, onValueChange = { titoloTemplate = it },
-                label = { Text("Titolo evento (placeholder: {oraPartenza} {luogoPartenza} {luogoArrivo} {oraArrivo})") },
+                label = { Text("Titolo evento (placeholder: {oraPartenza} {luogoPartenza} {luogoArrivo} {oraArrivo} {nomeTratta})") },
                 modifier = Modifier.fillMaxWidth()
             )
         }
