@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -98,6 +101,11 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
     }
 
     var espansoTemplate by remember { mutableStateOf(false) }
+    // Sollevato fuori dalla LazyColumn sottostante, come gruppiRidotti in EventiCreatiScreen: gli
+    // item della lista possono essere ricomposti da zero quando escono ed entrano dal viewport
+    // durante lo scroll, perdendo un remember locale — qui invece lo stato sopravvive perché vive
+    // nel composable padre. Chiuso di default (nessuna chiave nel set); una per templateSlotId.
+    var slotDettagliEspansi by remember { mutableStateOf(setOf<String>()) }
 
     Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
         LazyColumn(
@@ -236,7 +244,15 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                     onCambiaNotifica = { viewModel.aggiornaNotifica(evento.templateSlotId, it) },
                     onCambiaDescrizione = { viewModel.aggiornaDescrizione(evento.templateSlotId, it) },
                     onCambiaColore = { viewModel.aggiornaColoreEvento(evento.templateSlotId, it) },
-                    onScegliVettoreAltro = { viewModel.sceglieVettorePerTrattaAltro(evento.templateSlotId, it) }
+                    onScegliVettoreAltro = { viewModel.sceglieVettorePerTrattaAltro(evento.templateSlotId, it) },
+                    dettagliEspansi = evento.templateSlotId in slotDettagliEspansi,
+                    onToggleDettagli = {
+                        slotDettagliEspansi = if (evento.templateSlotId in slotDettagliEspansi) {
+                            slotDettagliEspansi - evento.templateSlotId
+                        } else {
+                            slotDettagliEspansi + evento.templateSlotId
+                        }
+                    }
                 )
             }
 
@@ -636,7 +652,9 @@ private fun CardEvento(
     onCambiaNotifica: (Notifica) -> Unit,
     onCambiaDescrizione: (String) -> Unit,
     onCambiaColore: (Int?) -> Unit,
-    onScegliVettoreAltro: (Vettore) -> Unit
+    onScegliVettoreAltro: (Vettore) -> Unit,
+    dettagliEspansi: Boolean,
+    onToggleDettagli: () -> Unit
 ) {
     var modificaManuale by remember { mutableStateOf(false) }
     var confermaEliminazione by remember { mutableStateOf(false) }
@@ -685,17 +703,16 @@ private fun CardEvento(
                 )
             }
 
-            SelettoreNotifica(valore = notifica, onCambia = onCambiaNotifica)
-
-            OutlinedTextField(
-                value = descrizione,
-                onValueChange = onCambiaDescrizione,
-                label = { Text("Descrizione (opzionale)") },
-                minLines = 2,
-                modifier = Modifier.fillMaxWidth()
+            SezioneDettagliEvento(
+                notifica = notifica,
+                descrizione = descrizione,
+                colore = colore,
+                espansa = dettagliEspansi,
+                onToggle = onToggleDettagli,
+                onCambiaNotifica = onCambiaNotifica,
+                onCambiaDescrizione = onCambiaDescrizione,
+                onCambiaColore = onCambiaColore
             )
-
-            SelettoreColore(coloreSelezionato = colore, onCambia = onCambiaColore)
 
             if (evento.alternative.isNotEmpty()) {
                 TextButton(onClick = { mostraConfrontoAlternative = true }) {
@@ -798,6 +815,76 @@ private fun CardEvento(
             },
             onDismiss = { corseDaConfermare = null }
         )
+    }
+}
+
+/**
+ * Promemoria, descrizione e colore raccolti in una sezione espandibile per tenere la card
+ * compatta: chiusa di default (vedi [dettagliEspansi], sollevato in [EsecuzioneScreen] così non si
+ * perde durante lo scroll della lista — stesso pattern dei gruppi settimanali in EventiCreatiScreen
+ * e dello storico in DialogVersioni). Quando è chiusa e almeno uno dei tre campi ha un valore
+ * diverso dal default, l'intestazione mostra un sottotitolo con i nomi di quali (es. "Promemoria ·
+ * Colore"): l'utente non deve aprirla per scoprire che contiene qualcosa. "Colore" conta come
+ * personalizzato anche quando è solo quello ereditato dalla Tratta (nessuna distinzione qui da un
+ * override esplicito per questa sola esecuzione): stessa convenzione già usata da SelettoreColore,
+ * dove null è l'unico valore "di default".
+ */
+@Composable
+private fun SezioneDettagliEvento(
+    notifica: Notifica,
+    descrizione: String,
+    colore: Int?,
+    espansa: Boolean,
+    onToggle: () -> Unit,
+    onCambiaNotifica: (Notifica) -> Unit,
+    onCambiaDescrizione: (String) -> Unit,
+    onCambiaColore: (Int?) -> Unit
+) {
+    val personalizzati = buildList {
+        if (notifica != Notifica.NESSUNA) add("Promemoria")
+        if (descrizione.isNotBlank()) add("Descrizione")
+        if (colore != null) add("Colore")
+    }
+
+    Column(modifier = Modifier.fillMaxWidth().animateContentSize()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(vertical = 4.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Promemoria, descrizione e colore", style = MaterialTheme.typography.labelLarge)
+                if (!espansa && personalizzati.isNotEmpty()) {
+                    Text(
+                        personalizzati.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Icon(
+                if (espansa) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (espansa) "Riduci" else "Espandi"
+            )
+        }
+        if (espansa) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 6.dp)
+            ) {
+                SelettoreNotifica(valore = notifica, onCambia = onCambiaNotifica)
+                OutlinedTextField(
+                    value = descrizione,
+                    onValueChange = onCambiaDescrizione,
+                    label = { Text("Descrizione (opzionale)") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                SelettoreColore(coloreSelezionato = colore, onCambia = onCambiaColore)
+            }
+        }
     }
 }
 
