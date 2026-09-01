@@ -580,6 +580,13 @@ class CalendarWriter(private val context: Context) {
             .distinct()
             .forEach { account ->
                 val inizioMisurazione = System.currentTimeMillis()
+                // Catturato PRIMA della richiesta: è esattamente lo stato che spiegherebbe un
+                // ritardo (master sync o sync dell'account disattivati bypassano comunque
+                // IGNORE_SETTINGS per la NOSTRA richiesta, ma isSyncActive=true rivela che un'altra
+                // sync era già in corso e la nostra si è messa in coda dietro quella) — la sola
+                // domanda a cui questa indagine non ha potuto rispondere finché non c'era da
+                // qualche parte da registrarlo.
+                val diagnostica = diagnosticaSync(account)
                 try {
                     val extras = Bundle().apply {
                         putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
@@ -591,19 +598,42 @@ class CalendarWriter(private val context: Context) {
                     AttivitaLogger.integrazione(
                         // Mai il nome account: per un account Google coincide con l'email (vedi la
                         // nota sulla privacy in AttivitaLogger) — il tipo basta a diagnosticare.
-                        descrizione = "Richiesta sync calendario (account ${account.type})",
+                        descrizione = "Richiesta sync calendario (account ${account.type}) $diagnostica",
                         esito = EsitoRegistro.SUCCESSO,
                         durataMs = System.currentTimeMillis() - inizioMisurazione
                     )
                 } catch (e: Exception) {
                     AttivitaLogger.integrazione(
-                        descrizione = "Richiesta sync calendario (account ${account.type})",
+                        descrizione = "Richiesta sync calendario (account ${account.type}) $diagnostica",
                         esito = EsitoRegistro.ERRORE,
                         durataMs = System.currentTimeMillis() - inizioMisurazione,
                         dettaglioErrore = e.message
                     )
                 }
             }
+    }
+
+    /**
+     * Stato di sincronizzazione dell'account per l'authority del calendario, nel formato compatto
+     * loggato accanto a ogni richiesta di sync (vedi [richiediSyncSeOpportuno]): se il sistema sta
+     * effettivamente posticipando le nostre richieste (master sync o sync automatica dell'account
+     * disattivati, o una sync già in corso/in coda) diventa visibile nel registro attività invece
+     * di restare un'ipotesi. Richiede READ_SYNC_SETTINGS/READ_SYNC_STATS (protection level
+     * "normal", vedi AndroidManifest): se anche solo la lettura fallisse, non deve impedire la
+     * richiesta di sync vera e propria, quindi ogni valore non leggibile diventa "?" invece di
+     * propagare un'eccezione.
+     */
+    private fun diagnosticaSync(account: Account): String {
+        fun leggi(descrizione: String, valore: () -> Boolean): String = try {
+            "$descrizione=${valore()}"
+        } catch (e: Exception) {
+            "$descrizione=?"
+        }
+        val masterSync = leggi("masterSync") { ContentResolver.getMasterSyncAutomatically() }
+        val accountSync = leggi("accountSync") { ContentResolver.getSyncAutomatically(account, CalendarContract.AUTHORITY) }
+        val pending = leggi("pending") { ContentResolver.isSyncPending(account, CalendarContract.AUTHORITY) }
+        val active = leggi("active") { ContentResolver.isSyncActive(account, CalendarContract.AUTHORITY) }
+        return "[$masterSync, $accountSync, $pending, $active]"
     }
 
     /**
