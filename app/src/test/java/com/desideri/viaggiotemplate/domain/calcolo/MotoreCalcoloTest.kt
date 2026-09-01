@@ -56,6 +56,14 @@ class MotoreCalcoloTest {
 
     private fun ancora(indice: Int, inizio: LocalTime, fine: LocalTime) = mapOf(indice to (inizio to fine))
 
+    /** Verifica l'invariante di contenimento: il blocco calendario deve sempre coprire l'orario reale che rappresenta. */
+    private fun assertContenimento(evento: EventoCalcolato) {
+        assertTrue(
+            "il blocco [${evento.inizioBlocco}-${evento.fineBlocco}] deve contenere l'orario reale [${evento.inizioReale}-${evento.fineReale}]",
+            evento.inizioBlocco <= evento.inizioReale && evento.fineBlocco >= evento.fineReale
+        )
+    }
+
     @Test
     fun `slot ancora singolo ritorna gli orari forniti e li arrotonda per il blocco`() {
         val tratta = trattaAuto("ancora", durata = 15, margine = 5)
@@ -546,11 +554,16 @@ class MotoreCalcoloTest {
     }
 
     @Test
-    fun `blocchi arrotondati di tratte consecutive non si sovrappongono mai, anche quando lo scarto reale e' piu piccolo dello step (bug segnalato, scenario Lugano-Chiasso)`() {
+    fun `blocchi arrotondati di tratte consecutive non si sovrappongono mai, e restano contenitivi degli orari reali (bug segnalato, scenario Lugano-Chiasso)`() {
         // Dati reali dallo screenshot: arrivo 17:31 a Lugano Stazione, partenza successiva 17:36
         // (5 minuti di scarto reale) — con step 10 di default, l'arrotondamento indipendente di
         // ciascun blocco (arrivo per eccesso a 17:40, partenza successiva per difetto a 17:30)
-        // produceva 10 minuti di sovrapposizione (17:30-17:40) tra i due blocchi calendario.
+        // produceva 10 minuti di sovrapposizione (17:30-17:40) tra i due blocchi calendario. Una
+        // prima versione del fix eliminava la sovrapposizione spingendo l'inizio del secondo
+        // blocco a 17:40 — ma 17:40 è DOPO la partenza reale delle 17:36, quindi il blocco non
+        // conteneva più l'evento che doveva rappresentare: il fix corretto sceglie invece un
+        // confine dentro la finestra reale libera [17:31, 17:36], qui 17:35 (arrotondato per
+        // difetto a metà step, 5 minuti).
         val luganoStazione = trattaAuto("lugano-stazione", durata = 15, margine = 0)
         val stazioneChiasso = trattaAuto("stazione-chiasso", durata = 30, margine = 0)
 
@@ -571,20 +584,22 @@ class MotoreCalcoloTest {
         assertEquals(LocalTime.of(17, 36), eventi[1].inizioReale)
         assertEquals(LocalTime.of(18, 6), eventi[1].fineReale)
 
-        // Primo blocco invariato (arrotondamento indipendente, nessun vincolo da un blocco precedente).
+        // Primo blocco invariato in partenza, ma la fine si accorcia da 17:40 (arrotondamento
+        // indipendente) a 17:35 — il confine condiviso, scelto dentro la finestra reale libera.
         assertEquals(LocalTime.of(17, 10), eventi[0].inizioBlocco)
-        assertEquals(LocalTime.of(17, 40), eventi[0].fineBlocco)
-        // Secondo blocco: l'inizio arrotondato per difetto (17:30) precederebbe la fine del primo
-        // (17:40) -> spinto avanti a toccarla esattamente, mai a sovrapporla. La fine (18:10) resta
-        // quella arrotondata normalmente, essendo ben oltre il nuovo inizio.
-        assertEquals(LocalTime.of(17, 40), eventi[1].inizioBlocco)
+        assertEquals(LocalTime.of(17, 35), eventi[0].fineBlocco)
+        // Secondo blocco: stesso confine come inizio; la fine (18:10) resta quella arrotondata
+        // normalmente, essendo ben oltre il confine.
+        assertEquals(LocalTime.of(17, 35), eventi[1].inizioBlocco)
         assertEquals(LocalTime.of(18, 10), eventi[1].fineBlocco)
 
         assertTrue("i blocchi non devono mai sovrapporsi", eventi[0].fineBlocco <= eventi[1].inizioBlocco)
+        assertContenimento(eventi[0])
+        assertContenimento(eventi[1])
     }
 
     @Test
-    fun `due tratte davvero contigue (margine zero, stesso istante reale di cambio) restano adiacenti senza sovrapporsi`() {
+    fun `due tratte davvero contigue (margine zero, stesso istante reale di cambio) restano adiacenti senza sovrapporsi ne' perdere il contenimento`() {
         val prima = trattaAuto("prima", durata = 15, margine = 0)   // reale 10:03 -> 10:18
         val dopo = trattaAuto("dopo", durata = 15, margine = 0)     // reale 10:18 -> 10:33 (parte esattamente dove arriva la prima)
 
@@ -596,21 +611,23 @@ class MotoreCalcoloTest {
         val eventi = motore.calcola(risolti, ancora(0, LocalTime.of(10, 3), LocalTime.of(10, 18)))
 
         assertEquals(LocalTime.of(10, 18), eventi[1].inizioReale) // margine 0 -> parte esattamente all'arrivo della prima
-        assertEquals(LocalTime.of(10, 20), eventi[0].fineBlocco)   // 10:18 arrotondato per eccesso
-        // Senza il vincolo, l'inizio del secondo blocco arrotonderebbe per difetto a 10:10, prima
-        // della fine del primo (10:20): spinto avanti a toccarla esattamente.
-        assertEquals(LocalTime.of(10, 20), eventi[1].inizioBlocco)
-        assertEquals(LocalTime.of(10, 40), eventi[1].fineBlocco)   // 10:33 arrotondato per eccesso, ben oltre il nuovo inizio: invariata
+        // Finestra reale libera = [10:18, 10:18], un solo istante: nessun valore arrotondato a
+        // metà step (5) vi cade dentro (10:15 è fuori), quindi si usa direttamente il suo unico
+        // punto, 10:18 — non più 10:20 (fine arrotondata per eccesso, che uscirebbe dalla finestra).
+        assertEquals(LocalTime.of(10, 18), eventi[0].fineBlocco)
+        assertEquals(LocalTime.of(10, 18), eventi[1].inizioBlocco)
+        assertEquals(LocalTime.of(10, 40), eventi[1].fineBlocco)   // 10:33 arrotondato per eccesso, ben oltre il confine: invariata
 
         assertTrue(eventi[0].fineBlocco <= eventi[1].inizioBlocco)
+        assertContenimento(eventi[0])
+        assertContenimento(eventi[1])
     }
 
     @Test
-    fun `quando anche la fine arrotondata del blocco cadrebbe prima del nuovo inizio vincolato, viene spinta alla pari (durata nulla, mai negativa)`() {
-        // Step molto diversi tra le due tratte (60 contro 5): l'arrotondamento per eccesso della
-        // prima tratta (step 60) spinge la sua fine molto piu' avanti di quanto farebbe la seconda
-        // tratta (step 5) per la propria, gia' indipendentemente arrotondata. Il vincolo deve quindi
-        // spingere avanti anche la fine del secondo blocco, non solo il suo inizio.
+    fun `step molto diversi tra tratte consecutive scelgono comunque un confine dentro la finestra reale, mai fuori`() {
+        // La prima tratta (step 60) arrotonderebbe la propria fine molto oltre la finestra reale
+        // libera verso la seconda (step 5): il vincolo deve accorciarla fino a restare dentro la
+        // finestra, non spingere la seconda fuori dalla propria partenza reale.
         val primaStepGrande = trattaAuto("prima", durata = 5, margine = 0, step = 60)   // reale 10:05 -> 10:10
         val dopoStepPiccolo = trattaAuto("dopo", durata = 1, margine = 0, step = 5)     // reale 10:10 -> 10:11
 
@@ -623,14 +640,45 @@ class MotoreCalcoloTest {
 
         assertEquals(LocalTime.of(10, 10), eventi[1].inizioReale)
         assertEquals(LocalTime.of(10, 11), eventi[1].fineReale)
-        assertEquals(LocalTime.of(11, 0), eventi[0].fineBlocco)     // 10:10 arrotondato per eccesso allo step 60
-        // Senza il vincolo, il secondo blocco sarebbe 10:10-10:15 (step 5): entrambi gli estremi
-        // cadono prima della fine del primo blocco (11:00) -> entrambi spinti a 11:00, non solo l'inizio.
-        assertEquals(LocalTime.of(11, 0), eventi[1].inizioBlocco)
-        assertEquals(LocalTime.of(11, 0), eventi[1].fineBlocco)
+        // Senza il vincolo, il primo blocco finirebbe alle 11:00 (step 60) sovrapponendo il
+        // secondo (10:10-10:15, step 5). Finestra reale libera = [10:10, 10:10]: il confine scelto
+        // è quel punto stesso, quindi il primo blocco si accorcia da 11:00 a 10:10.
+        assertEquals(LocalTime.of(10, 10), eventi[0].fineBlocco)
+        assertEquals(LocalTime.of(10, 10), eventi[1].inizioBlocco)
+        assertEquals(LocalTime.of(10, 15), eventi[1].fineBlocco) // 10:11 arrotondato per eccesso allo step 5, invariata
 
         assertTrue(eventi[0].fineBlocco <= eventi[1].inizioBlocco)
-        assertTrue("la fine di un blocco non deve mai cadere prima del suo inizio", eventi[1].inizioBlocco <= eventi[1].fineBlocco)
+        assertContenimento(eventi[0])
+        assertContenimento(eventi[1])
+    }
+
+    @Test
+    fun `finestra reale vuota o negativa (dati incoerenti) non e' risolvibile senza rompere il contenimento, quindi si accetta la sovrapposizione residua`() {
+        // Ancore corrette a mano dall'utente, tra loro incoerenti: la seconda tratta "parte"
+        // (10:20) prima che la prima sia "arrivata" (10:30) — possibile perché sono due ancore
+        // indipendenti, non propagate l'una dall'altra. Non esiste un confine unico che stia
+        // dentro sia [inizioReale1, fineReale1] sia [inizioReale2, fineReale2] quando si
+        // sovrappongono: il vincolo deve rinunciare piuttosto che violare il contenimento.
+        val prima = trattaAuto("prima", durata = 30, margine = 0)
+        val dopo = trattaAuto("dopo", durata = 20, margine = 0)
+
+        val risolti = listOf(
+            SlotRisolto(slot("s0", 0, ancora = true, selezionataId = prima.id), prima, listOf(prima)),
+            SlotRisolto(slot("s1", 1, ancora = true, selezionataId = dopo.id), dopo, listOf(dopo))
+        )
+        val ancore = ancora(0, LocalTime.of(10, 0), LocalTime.of(10, 30)) +
+            ancora(1, LocalTime.of(10, 20), LocalTime.of(10, 40))
+
+        val eventi = motore.calcola(risolti, ancore)
+
+        // Il contenimento resta l'invariante non negoziabile: ogni blocco copre sempre il proprio
+        // orario reale, anche se questo lascia i due blocchi sovrapposti (10:20-10:30).
+        assertContenimento(eventi[0])
+        assertContenimento(eventi[1])
+        assertEquals(LocalTime.of(10, 0), eventi[0].inizioBlocco)
+        assertEquals(LocalTime.of(10, 30), eventi[0].fineBlocco)
+        assertEquals(LocalTime.of(10, 20), eventi[1].inizioBlocco)
+        assertEquals(LocalTime.of(10, 40), eventi[1].fineBlocco)
     }
 
     @Test
@@ -643,6 +691,7 @@ class MotoreCalcoloTest {
         assertEquals(1, eventi.size)
         assertEquals(LocalTime.of(9, 0), eventi[0].inizioBlocco)
         assertEquals(LocalTime.of(9, 30), eventi[0].fineBlocco)
+        assertContenimento(eventi[0])
     }
 
     @Test

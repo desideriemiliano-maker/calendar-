@@ -92,12 +92,15 @@ class MotoreCalcolo {
         // non sovrapporsi mai — vedi il commento su vincolaBlocchiNonSovrapposti.
         val blocIniPerSlot = arrayOfNulls<LocalTime>(slotsRisolti.size)
         val blocFinPerSlot = arrayOfNulls<LocalTime>(slotsRisolti.size)
+        val stepPerSlot = IntArray(slotsRisolti.size)
         for (i in slotsRisolti.indices) {
-            val (blocIni, blocFin) = applicaArrotondamento(slotsRisolti[i].trattaSelezionata, inizio[i]!!, fine[i]!!)
+            val tratta = slotsRisolti[i].trattaSelezionata
+            val (blocIni, blocFin) = applicaArrotondamento(tratta, inizio[i]!!, fine[i]!!)
             blocIniPerSlot[i] = blocIni
             blocFinPerSlot[i] = blocFin
+            stepPerSlot[i] = tratta.stepArrotondamentoMinuti.coerceAtLeast(1)
         }
-        vincolaBlocchiNonSovrapposti(blocIniPerSlot, blocFinPerSlot)
+        vincolaBlocchiNonSovrapposti(blocIniPerSlot, blocFinPerSlot, inizio, fine, stepPerSlot)
 
         return slotsRisolti.mapIndexed { i, slotRisolto ->
             val ini = inizio[i]!!
@@ -233,33 +236,54 @@ class MotoreCalcolo {
 
     /**
      * Vincola in-place [blocIni]/[blocFin] (allineati per indice a `slotsRisolti`, quindi già in
-     * ordine cronologico) a non sovrapporsi mai col blocco precedente: se l'arrotondamento
-     * indipendente di un blocco lo fa iniziare prima che il precedente sia finito — il bug
-     * segnalato, quando lo scarto reale tra due tratte è più piccolo dell'espansione combinata dei
-     * due arrotondamenti (es. arrivo reale 17:31 arrotondato per eccesso a 17:40, partenza reale
-     * successiva 17:36 arrotondata per difetto a 17:30) — lo si sposta in avanti fino a toccare
-     * esattamente la fine del precedente, mai oltre.
+     * ordine cronologico) a non sovrapporsi mai col blocco precedente, SENZA MAI rompere
+     * l'invariante di contenimento che ogni blocco deve rispettare verso il proprio orario reale
+     * ([inizioReale]/[fineReale], anch'essi allineati per indice): `blocIni <= inizioReale` e
+     * `blocFin >= fineReale`, sempre — un blocco che inizia dopo che il viaggio reale è già partito
+     * non lo rappresenterebbe più in calendario, anche se non si sovrappone più col vicino. Una
+     * prima versione di questa funzione violava questa invariante spostando l'inizio del blocco in
+     * conflitto fino alla fine di quello precedente, anche oltre la propria partenza reale.
      *
-     * Si tocca solo l'inizio del blocco in conflitto, non la fine di quello precedente: spostare
-     * indietro un blocco già confermato (magari mostrato/salvato altrove nel frattempo) sarebbe più
-     * sorprendente che accorciare il margine "di cortesia" del blocco successivo, che è comunque
-     * quello con meno margine reale disponibile in quel punto del viaggio.
+     * Quando l'arrotondamento indipendente di un blocco lo fa iniziare prima che il precedente sia
+     * finito — il bug segnalato, quando lo scarto reale tra due tratte è più piccolo
+     * dell'espansione combinata dei due arrotondamenti (es. arrivo reale 17:31 arrotondato per
+     * eccesso a 17:40, partenza reale successiva 17:36 arrotondata per difetto a 17:30) — il nuovo
+     * confine condiviso tra i due blocchi va scelto DENTRO la finestra reale libera tra i due
+     * eventi, `[fineReale(i-1), inizioReale(i)]` (nell'esempio, `[17:31, 17:36]`): è l'unica zona in
+     * cui spostarlo non intacca il contenimento di nessuno dei due blocchi. Dentro quella finestra
+     * si preferisce un valore arrotondato per difetto a metà dello step più piccolo tra i due
+     * blocchi (con lo step di default, 10, la metà è 5: nell'esempio produce 17:35, non un punto
+     * arbitrario), per restare leggibile come gli altri arrotondamenti; se nessun valore così
+     * arrotondato cade nella finestra (finestra più stretta della granularità) si usa direttamente
+     * il suo estremo inferiore, la fine reale del blocco precedente.
      *
-     * Se anche la fine del blocco in conflitto cade prima del nuovo inizio (un caso limite: uno
-     * scarto reale così minimo, o una cascata di aggiustamenti su tratte consecutive molto ravvicinate,
-     * che persino la fine arrotondata del blocco non basterebbe più a contenerlo) la fine viene
-     * spinta alla pari dell'inizio: un blocco di durata nulla — due orari uguali — invece di un
-     * blocco con la fine prima dell'inizio, che nessun calendario saprebbe rappresentare in modo
-     * sensato. Non accorcia mai un blocco sotto la propria durata reale originaria in altri punti:
-     * qui si allarga solo l'arrotondamento, mai la tratta stessa.
+     * Caso limite: se la finestra è vuota o negativa (`inizioReale(i) < fineReale(i-1)` — nei dati,
+     * la tratta successiva parte prima che la precedente sia arrivata) non esiste alcun confine che
+     * soddisfi il contenimento di entrambi i blocchi: si privilegia il contenimento — mai un blocco
+     * che non copre il proprio orario reale — e si accetta la sovrapposizione residua, che a quel
+     * punto riflette un'incoerenza nei dati reali stessi, non un difetto dell'arrotondamento che
+     * questa funzione possa correggere.
      */
-    private fun vincolaBlocchiNonSovrapposti(blocIni: Array<LocalTime?>, blocFin: Array<LocalTime?>) {
+    private fun vincolaBlocchiNonSovrapposti(
+        blocIni: Array<LocalTime?>,
+        blocFin: Array<LocalTime?>,
+        inizioReale: Array<LocalTime?>,
+        fineReale: Array<LocalTime?>,
+        stepPerSlot: IntArray
+    ) {
         for (i in 1 until blocIni.size) {
-            val fineBlocoPrecedente = blocFin[i - 1]!!
-            if (blocIni[i]!! < fineBlocoPrecedente) {
-                blocIni[i] = fineBlocoPrecedente
-                if (blocFin[i]!! < fineBlocoPrecedente) blocFin[i] = fineBlocoPrecedente
-            }
+            if (blocIni[i]!! >= blocFin[i - 1]!!) continue // nessun conflitto, niente da correggere
+
+            val finestraInizio = fineReale[i - 1]!!
+            val finestraFine = inizioReale[i]!!
+            if (finestraFine < finestraInizio) continue // finestra vuota/negativa: dati incoerenti, vedi doc sopra
+
+            val granularita = maxOf(1, minOf(stepPerSlot[i - 1], stepPerSlot[i]) / 2)
+            val candidato = arrotondaGiu(finestraFine, granularita)
+            val confine = if (candidato >= finestraInizio) candidato else finestraInizio
+
+            blocFin[i - 1] = confine
+            blocIni[i] = confine
         }
     }
 
