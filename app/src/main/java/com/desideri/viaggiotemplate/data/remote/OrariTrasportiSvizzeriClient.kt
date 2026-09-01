@@ -46,8 +46,12 @@ class OrariTrasportiSvizzeriClient : ClientOrariTreno {
             "&time=${oraRiferimento.format(formatoOra)}" +
             "&limit=$limite"
         val connessione = URL(url).openConnection() as HttpURLConnection
-        connessione.connectTimeout = 10_000
-        connessione.readTimeout = 10_000
+        // 10s/10s si sono rivelati troppo aggressivi: misurata una latenza base di
+        // transport.opendata.ch di 9-14s anche per una singola richiesta isolata, cioe' gia' al
+        // limite (o oltre) della soglia precedente. Il connect resta breve: il collo di bottiglia
+        // e' la lettura della risposta, non l'apertura della connessione.
+        connessione.connectTimeout = 8_000
+        connessione.readTimeout = 20_000
         return try {
             val corpo = connessione.inputStream.bufferedReader().use { it.readText() }
             val json = JSONObject(corpo)

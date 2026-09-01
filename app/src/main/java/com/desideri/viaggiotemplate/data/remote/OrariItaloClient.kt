@@ -151,8 +151,10 @@ class OrariItaloClient(private val credenziali: CredenzialiItalo? = null) : Clie
 
     private fun eseguiPost(url: String, corpo: JSONObject): JSONObject {
         val connessione = URL(url).openConnection() as HttpURLConnection
-        connessione.connectTimeout = 10_000
-        connessione.readTimeout = 10_000
+        // Stessa soglia (e stesso motivo) di OrariTrasportiSvizzeriClient: 10s di lettura si sono
+        // rivelati troppo stretti per fonti non ufficiali di questo tipo.
+        connessione.connectTimeout = 8_000
+        connessione.readTimeout = 20_000
         connessione.requestMethod = "POST"
         connessione.doOutput = true
         connessione.setRequestProperty("Content-Type", "application/json; charset=utf-8")

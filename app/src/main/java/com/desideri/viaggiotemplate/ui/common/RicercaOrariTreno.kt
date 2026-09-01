@@ -21,11 +21,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.desideri.viaggiotemplate.data.local.CredenzialiItalo
 import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
+import com.desideri.viaggiotemplate.data.remote.RicercaOrariCoordinator
 import com.desideri.viaggiotemplate.data.remote.clientOrariPer
 import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
 import com.desideri.viaggiotemplate.domain.model.Vettore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -77,9 +76,7 @@ fun RicercaOrariTreno(
         inCorso = true
         errore = null
         try {
-            val corse = withContext(Dispatchers.IO) {
-                client.cercaCorse(daStazione, aStazione, data, oraRiferimento, limite)
-            }
+            val corse = RicercaOrariCoordinator.cercaCorse(client, vettore, daStazione, aStazione, data, oraRiferimento, limite)
             risultati = corse
             onRisultati(corse)
             if (corse.isEmpty()) errore = "Nessuna corsa trovata per questa data."
