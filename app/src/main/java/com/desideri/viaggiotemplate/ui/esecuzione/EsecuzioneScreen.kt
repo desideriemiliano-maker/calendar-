@@ -690,6 +690,19 @@ private fun CardEvento(
                     Icon(Icons.Filled.Delete, contentDescription = "Rimuovi questa tratta", tint = MaterialTheme.colorScheme.error)
                 }
             }
+            // Il titolo sopra è generato da Tratta.titoloTemplate (default "{oraPartenza}
+            // {luogoPartenza} / {luogoArrivo} {oraArrivo}") e non include mai il nome della Tratta
+            // stessa — l'unico campo identificativo/descrittivo che ha (non esiste un campo
+            // "descrizione" separato sul modello). Su riga propria invece che accodato al titolo:
+            // il titolo generato è già lungo e va spesso a capo da solo, appenderci altro in linea
+            // lo renderebbe illeggibile accanto all'icona di eliminazione.
+            if (evento.tratta.nome.isNotBlank()) {
+                Text(
+                    "(${evento.tratta.nome})",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Text(
                 "Blocco calendario: ${evento.inizioBlocco.toStringHHmm()} → ${evento.fineBlocco.toStringHHmm()}",
                 style = MaterialTheme.typography.bodySmall
