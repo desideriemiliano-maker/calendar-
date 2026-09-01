@@ -25,7 +25,7 @@ import java.util.UUID
 const val NOME_FILE_DATABASE = "viaggio-template.db"
 
 /** Versione corrente dello schema (== `PRAGMA user_version` scritto da Room): riusata dal ripristino di un backup Drive per verificare, prima di sostituire il database live, che il file scaricato sia dello schema atteso. */
-const val VERSIONE_SCHEMA_DATABASE = 15
+const val VERSIONE_SCHEMA_DATABASE = 16
 
 @Database(
     entities = [
@@ -351,5 +351,12 @@ val MIGRATION_14_15: Migration = object : Migration(14, 15) {
         ids.forEachIndexed { indice, id ->
             db.execSQL("UPDATE luogo SET ordine = ? WHERE id = ?", arrayOf(indice, id))
         }
+    }
+}
+
+/** Aggiunge l'icona opzionale del Luogo (vedi [com.desideri.viaggiotemplate.domain.model.IconaLuogo]); null = nessuna icona per tutte le righe esistenti. */
+val MIGRATION_15_16: Migration = object : Migration(15, 16) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE luogo ADD COLUMN icona TEXT")
     }
 }

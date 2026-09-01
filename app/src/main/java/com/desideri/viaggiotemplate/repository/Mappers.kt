@@ -6,6 +6,7 @@ import com.desideri.viaggiotemplate.data.local.entities.OrarioFissoEntity
 import com.desideri.viaggiotemplate.data.local.entities.TrattaConOpzioni
 import com.desideri.viaggiotemplate.data.local.entities.TrattaEntity
 import com.desideri.viaggiotemplate.domain.model.Arrotondamento
+import com.desideri.viaggiotemplate.domain.model.IconaLuogo
 import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
@@ -15,9 +16,9 @@ import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import com.desideri.viaggiotemplate.domain.model.Vettore
 import java.time.LocalTime
 
-fun LuogoEntity.toDomain(): Luogo = Luogo(id = id, nome = nome, indirizzo = indirizzo, latitudine = latitudine, longitudine = longitudine, colore = colore, ordine = ordine)
+fun LuogoEntity.toDomain(): Luogo = Luogo(id = id, nome = nome, indirizzo = indirizzo, latitudine = latitudine, longitudine = longitudine, colore = colore, ordine = ordine, icona = icona?.let { IconaLuogo.valueOf(it) })
 
-fun Luogo.toEntity(): LuogoEntity = LuogoEntity(id = id, nome = nome, indirizzo = indirizzo, latitudine = latitudine, longitudine = longitudine, colore = colore, ordine = ordine)
+fun Luogo.toEntity(): LuogoEntity = LuogoEntity(id = id, nome = nome, indirizzo = indirizzo, latitudine = latitudine, longitudine = longitudine, colore = colore, ordine = ordine, icona = icona?.name)
 
 fun TrattaConOpzioni.toDomain(): Tratta = Tratta(
     id = tratta.id,

@@ -13,5 +13,7 @@ data class LuogoEntity(
     val longitudine: Double? = null,
     /** Colore ARGB della card in libreria (e del marker sulla mappa); null = colore grigio di default del tema. */
     val colore: Int? = null,
-    val ordine: Int = 0
+    val ordine: Int = 0,
+    /** IconaLuogo.name; null = nessuna icona. */
+    val icona: String? = null
 )

@@ -47,6 +47,7 @@ import com.desideri.viaggiotemplate.R
 import com.desideri.viaggiotemplate.domain.mappa.PercorsoTemplate
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorso
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorsoTratta
+import com.desideri.viaggiotemplate.domain.model.IconaLuogo
 import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
@@ -392,6 +393,23 @@ private fun iconePerTipo(context: Context): Map<TipoTratta, Drawable> = TipoTrat
     requireNotNull(ContextCompat.getDrawable(context, resId)) { "Icona mancante per $tipo" }
 }
 
+/**
+ * Stesso principio di [iconePerTipo] ma per [IconaLuogo]: risorse VectorDrawable in
+ * `res/drawable/ic_luogo_*.xml`, usate come glifo del marker numerato (vedi
+ * [iconaMarkerNumerato]) al posto del numero quando il Luogo ha un'icona assegnata.
+ */
+private fun iconePerLuogo(context: Context): Map<IconaLuogo, Drawable> = IconaLuogo.values().associateWith { icona ->
+    val resId = when (icona) {
+        IconaLuogo.UFFICIO -> R.drawable.ic_luogo_ufficio
+        IconaLuogo.CASA -> R.drawable.ic_luogo_casa
+        IconaLuogo.STAZIONE -> R.drawable.ic_luogo_stazione
+        IconaLuogo.AEROPORTO -> R.drawable.ic_luogo_aeroporto
+        IconaLuogo.EDIFICIO -> R.drawable.ic_luogo_edificio
+        IconaLuogo.PARCHEGGIO -> R.drawable.ic_luogo_parcheggio
+    }
+    requireNotNull(ContextCompat.getDrawable(context, resId)) { "Icona mancante per $icona" }
+}
+
 private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
     mapView.overlays.clear()
     val tappe = esito.tappe
@@ -407,13 +425,14 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
         )
     }
 
+    val iconeLuogo = iconePerLuogo(mapView.context)
     tappe.forEachIndexed { indice, tappa ->
         mapView.overlays.add(
             Marker(mapView).apply {
                 position = punti[indice]
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 title = "${tappa.numero}. ${tappa.luogo.nome}"
-                icon = iconaMarkerNumerato(mapView.context, tappa.numero, tappa.luogo.colore)
+                icon = iconaMarkerNumerato(mapView.context, tappa.numero, tappa.luogo.colore, tappa.luogo.icona?.let { iconeLuogo.getValue(it) })
             }
         )
     }
@@ -587,11 +606,17 @@ private fun clipSegmentoAlViewport(x0: Float, y0: Float, x1: Float, y1: Float, l
 }
 
 /**
- * Disegna un piccolo pin circolare con il numero della tappa, per i marker ordinati sulla mappa.
- * [coloreLuogo] è il colore ARGB scelto dall'utente per questo Luogo (stesso campo usato per lo
- * sfondo della sua card in libreria); se assente usa il rosso di default.
+ * Disegna un piccolo pin circolare per i marker ordinati sulla mappa. [coloreLuogo] è il colore
+ * ARGB scelto dall'utente per questo Luogo (stesso campo usato per lo sfondo della sua card in
+ * libreria); se assente usa il rosso di default.
+ *
+ * [iconaLuogo] è il glifo di [IconaLuogo] già risolto in [Drawable] da [iconePerLuogo]: quando
+ * presente sostituisce il numero della tappa. Il numero resta il fallback (Luogo senza icona
+ * assegnata, il caso comune finché l'utente non ne sceglie una): è l'informazione più importante
+ * per un percorso con più tappe — l'ordine di visita — e non va mai persa in favore di un'icona
+ * puramente decorativa.
  */
-private fun iconaMarkerNumerato(context: Context, numero: Int, coloreLuogo: Int?): Drawable {
+private fun iconaMarkerNumerato(context: Context, numero: Int, coloreLuogo: Int?, iconaLuogo: Drawable?): Drawable {
     val diametro = (32 * context.resources.displayMetrics.density).toInt().coerceAtLeast(24)
     val bitmap = Bitmap.createBitmap(diametro, diametro, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
@@ -607,14 +632,21 @@ private fun iconaMarkerNumerato(context: Context, numero: Int, coloreLuogo: Int?
     }
     canvas.drawCircle(raggio, raggio, raggio - 2f, paintBordo)
 
-    val paintTesto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textSize = diametro * 0.5f
-        textAlign = Paint.Align.CENTER
-        isFakeBoldText = true
+    if (iconaLuogo != null) {
+        val dimensioneIcona = (diametro * 0.55f).toInt()
+        val offset = ((diametro - dimensioneIcona) / 2f).toInt()
+        iconaLuogo.setBounds(offset, offset, offset + dimensioneIcona, offset + dimensioneIcona)
+        iconaLuogo.draw(canvas)
+    } else {
+        val paintTesto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = diametro * 0.5f
+            textAlign = Paint.Align.CENTER
+            isFakeBoldText = true
+        }
+        val y = raggio - (paintTesto.descent() + paintTesto.ascent()) / 2
+        canvas.drawText(numero.toString(), raggio, y, paintTesto)
     }
-    val y = raggio - (paintTesto.descent() + paintTesto.ascent()) / 2
-    canvas.drawText(numero.toString(), raggio, y, paintTesto)
 
     return BitmapDrawable(context.resources, bitmap)
 }

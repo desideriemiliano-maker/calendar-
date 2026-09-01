@@ -47,6 +47,7 @@ import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.repository.RuoloLuogoInTratta
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
+import com.desideri.viaggiotemplate.ui.common.imageVector
 
 @Composable
 fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewModelFactory.get())) {
@@ -124,7 +125,11 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.padding(12.dp)
                             ) {
-                                Icon(Icons.Filled.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    luogo.icona?.imageVector() ?: Icons.Filled.Place,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(luogo.nome, style = MaterialTheme.typography.titleMedium)
