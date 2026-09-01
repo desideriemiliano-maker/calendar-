@@ -8,7 +8,10 @@ import java.time.LocalTime
  *
  * - `inizioReale`/`fineReale`: orari effettivi, usati per il titolo dell'evento.
  * - `inizioBlocco`/`fineBlocco`: orari arrotondati secondo la configurazione della tratta,
- *   usati per DTSTART/DTEND dell'evento calendario.
+ *   usati per DTSTART/DTEND dell'evento calendario. Sono solo un orario, senza alcuna
+ *   informazione su quale giorno di calendario: se il blocco scavalca la mezzanotte (tratta
+ *   notturna, o arrotondamento che spinge la fine a 00:00) tocca a chi legge questi campi
+ *   ricostruire il giorno giusto confrontando la sequenza — vedi CalendarWriter.risolviIstanti.
  * - `alternative`: presente solo per slot con più candidati (destinazioni alternative);
  *   ciascuna voce è il risultato che si otterrebbe scegliendo quella tratta al posto
  *   di quella attualmente selezionata.

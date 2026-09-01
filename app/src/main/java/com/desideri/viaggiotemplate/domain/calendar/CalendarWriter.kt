@@ -13,6 +13,8 @@ import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import kotlin.math.abs
@@ -114,6 +116,36 @@ data class EventoDaScrivere(
 )
 
 /**
+ * Ricostruisce inizio/fine di ogni evento come [LocalDateTime] assoluti a partire da [data] e
+ * dagli orari [EventoCalcolato.inizioBlocco]/`fineBlocco`, che da soli non portano alcuna
+ * informazione di giorno: sono solo un orario, e MotoreCalcolo non porta un offset di giorno
+ * oltre quello (vedi il commento su EventoCalcolato) — un blocco che scavalca la mezzanotte (per
+ * una tratta notturna, o perché l'arrotondamento spinge la fine a 00:00) è quindi indistinguibile,
+ * guardando solo `fineBlocco`, da uno che finisce prima di iniziare.
+ *
+ * Si avanza il giorno corrente di un giorno ogni volta che l'orario successivo della sequenza "va
+ * indietro nel tempo" rispetto a quello precedente: dato che [eventi] è sempre in ordine
+ * cronologico (viene da `eventiCalcolati`, prodotto da MotoreCalcolo avanzando nel tempo), un calo
+ * dell'orario di orologio può significare solo che è scoccata la mezzanotte.
+ *
+ * Nota: questo presume che la sequenza sia davvero monotona in senso assoluto. Un evento
+ * modificato manualmente con un orario precedente a quello dell'evento prima di lui verrebbe
+ * interpretato come "il giorno dopo" invece che come configurazione incoerente — la stessa
+ * ambiguità intrinseca del rappresentare tutto solo con LocalTime, non risolvibile qui senza
+ * portare un giorno esplicito fin dentro MotoreCalcolo.
+ */
+internal fun risolviIstanti(data: LocalDate, eventi: List<EventoDaScrivere>): List<Pair<LocalDateTime, LocalDateTime>> {
+    var giornoCorrente = data
+    var ultimoOrario = LocalTime.MIN
+    fun avanza(orario: LocalTime): LocalDateTime {
+        if (orario < ultimoOrario) giornoCorrente = giornoCorrente.plusDays(1)
+        ultimoOrario = orario
+        return giornoCorrente.atTime(orario)
+    }
+    return eventi.map { evD -> avanza(evD.evento.inizioBlocco) to avanza(evD.evento.fineBlocco) }
+}
+
+/**
  * Esito di [CalendarWriter.inserisciEventi]: gli id (uno per evento, null dove l'inserimento è
  * fallito, stesso ordine di input) più, quando il calendario scelto è di un account non locale con
  * la sincronizzazione disattivata (`Calendars.SYNC_EVENTS = 0`), un avviso da mostrare — a
@@ -183,22 +215,30 @@ class CalendarWriter(private val context: Context) {
         return out.sortedWith(compareByDescending<CalendarioDisponibile> { it.isPrimary }.thenBy { it.nome })
     }
 
-    /** Inserisce un singolo evento (con promemoria, descrizione e colore) e ritorna il suo ID, o null se l'inserimento fallisce. */
+    /**
+     * Inserisce un singolo evento (con promemoria, descrizione e colore) e ritorna il suo ID, o
+     * null se l'inserimento fallisce. [inizio]/[fine] sono già risolti su un giorno di calendario
+     * preciso (vedi [risolviIstanti]): questa funzione non fa più assunzioni su quale giorno usare
+     * per [EventoCalcolato.inizioBlocco]/`fineBlocco`, che da soli sono solo un orario del giorno e
+     * non bastano a saperlo (una tratta che scavalca la mezzanotte, o un arrotondamento che spinge
+     * la fine a 00:00, farebbe altrimenti calcolare una fine precedente all'inizio).
+     */
     fun inserisciEvento(
         calendario: CalendarioDisponibile,
-        data: LocalDate,
+        inizio: LocalDateTime,
+        fine: LocalDateTime,
         eventoDaScrivere: EventoDaScrivere,
         zonaOraria: ZoneId = ZoneId.systemDefault()
     ): Long? {
         val evento = eventoDaScrivere.evento
-        val inizio = data.atTime(evento.inizioBlocco).atZone(zonaOraria).toInstant().toEpochMilli()
-        val fine = data.atTime(evento.fineBlocco).atZone(zonaOraria).toInstant().toEpochMilli()
+        val inizioMillis = inizio.atZone(zonaOraria).toInstant().toEpochMilli()
+        val fineMillis = fine.atZone(zonaOraria).toInstant().toEpochMilli()
 
         val values = ContentValues().apply {
             put(CalendarContract.Events.CALENDAR_ID, calendario.id)
             put(CalendarContract.Events.TITLE, evento.titolo())
-            put(CalendarContract.Events.DTSTART, inizio)
-            put(CalendarContract.Events.DTEND, fine)
+            put(CalendarContract.Events.DTSTART, inizioMillis)
+            put(CalendarContract.Events.DTEND, fineMillis)
             put(CalendarContract.Events.EVENT_TIMEZONE, zonaOraria.id)
             if (eventoDaScrivere.descrizione.isNotBlank()) {
                 put(CalendarContract.Events.DESCRIPTION, eventoDaScrivere.descrizione)
@@ -233,7 +273,10 @@ class CalendarWriter(private val context: Context) {
         data: LocalDate,
         eventi: List<EventoDaScrivere>
     ): RisultatoInserimentoEventi {
-        val idInseriti = eventi.map { inserisciEvento(calendario, data, it) }
+        val istanti = risolviIstanti(data, eventi)
+        val idInseriti = eventi.zip(istanti).map { (evento, istante) ->
+            inserisciEvento(calendario, istante.first, istante.second, evento)
+        }
         if (idInseriti.any { it != null }) {
             richiediSyncSeOpportuno(listOf(calendario.aCalendarioEvento()))
         }
