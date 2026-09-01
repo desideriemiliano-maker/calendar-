@@ -1,8 +1,11 @@
 package com.desideri.viaggiotemplate.domain.calendar
 
+import android.accounts.Account
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.os.Bundle
 import android.provider.CalendarContract
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
 import com.desideri.viaggiotemplate.domain.location.formattaCoordinateGps
@@ -43,15 +46,48 @@ data class EventoCreato(
  * delete batch o è servito il fallback per singolo evento, e quali id restano comunque non
  * cancellati — usato per decidere se toccare la registrazione locale e per capire, sul
  * dispositivo reale, quale dei due meccanismi il Calendar Provider onora davvero.
+ *
+ * [calendariSincronizzati]/[calendariSyncDisattivata] esistono perché [completato] da solo non
+ * basta a dire che l'evento è davvero sparito: per un calendario di un account non locale, il
+ * Calendar Provider su una delete "normale" (non sync-adapter, vedi [CalendarWriter.eliminaEventi])
+ * marca la riga `deleted=1` invece di rimuoverla, e la nasconde alle query successive — comprese le
+ * nostre, che quindi la contano come "cancellata" a tutti gli effetti. La rimozione vera dal server
+ * arriva solo quando il sync adapter dell'account propaga quel flag, cosa che non è istantanea (e
+ * non avviene affatto se la sincronizzazione è disattivata per quel calendario).
  */
 data class RisultatoEliminazioneEventi(
     val idsRichiesti: Int,
     val cancellatiBatch: Int,
     val fallbackTentato: Boolean,
     val cancellatiFallback: Int,
-    val idsNonCancellati: List<Long>
+    val idsNonCancellati: List<Long>,
+    /** Nomi dei calendari non locali coinvolti, con sincronizzazione attiva (Calendars.SYNC_EVENTS = 1): la rimozione dal server non è istantanea, ma è in corso. */
+    val calendariSincronizzati: List<String> = emptyList(),
+    /** Nomi dei calendari non locali coinvolti, con sincronizzazione disattivata (Calendars.SYNC_EVENTS = 0): la rimozione resta solo locale finché l'utente non la riattiva. */
+    val calendariSyncDisattivata: List<String> = emptyList()
 ) {
     val completato: Boolean get() = idsNonCancellati.isEmpty()
+}
+
+/**
+ * Nota informativa "leggera" (mai un errore: nessuna azione richiesta se non per il caso
+ * sync-disattivata) da mostrare dopo un'eliminazione [RisultatoEliminazioneEventi.completato] —
+ * vedi la doc lì per il perché serve. Null quando non c'è nulla da segnalare (solo calendari
+ * locali, o nessun calendario coinvolto): il caso comune, che non deve produrre alcun messaggio.
+ */
+fun RisultatoEliminazioneEventi.notaSincronizzazione(): String? =
+    notaSincronizzazioneDaCalendari(calendariSincronizzati, calendariSyncDisattivata)
+
+/** Come [RisultatoEliminazioneEventi.notaSincronizzazione], aggregata su più esiti (es. l'eliminazione in blocco di più esecuzioni, ciascuna con il proprio [RisultatoEliminazioneEventi]). */
+fun List<RisultatoEliminazioneEventi>.notaSincronizzazioneAggregata(): String? =
+    notaSincronizzazioneDaCalendari(flatMap { it.calendariSincronizzati }.distinct(), flatMap { it.calendariSyncDisattivata }.distinct())
+
+/** Il caso sync-disattivata ha priorità su quello sync-attiva quando la stessa cancellazione coinvolge entrambi i tipi di calendario: è l'informazione più rilevante per l'utente (richiede una sua azione se vuole che la rimozione arrivi al server, l'altro caso no). */
+private fun notaSincronizzazioneDaCalendari(sincronizzati: List<String>, syncDisattivata: List<String>): String? = when {
+    syncDisattivata.isNotEmpty() ->
+        "Rimosso dal dispositivo. Sincronizzazione disattivata per ${syncDisattivata.joinToString(", ")}: resterà visibile su Google Calendar finché non la riattivi."
+    sincronizzati.isNotEmpty() -> "Rimosso — la rimozione dal server può richiedere qualche istante."
+    else -> null
 }
 
 /** Un calendario del dispositivo su cui l'app può scrivere eventi. */
@@ -256,34 +292,68 @@ class CalendarWriter(private val context: Context) {
      * Calendar Provider può comportarsi diversamente tra i due meccanismi a seconda di
      * device/account/calendario, e il fallback recupera i casi in cui solo uno dei due funziona
      * davvero. Eventi già eliminati dall'utente vengono semplicemente ignorati (già cancellati).
+     *
+     * **Perché niente `CALLER_IS_SYNCADAPTER`.** Ogni `delete()` qui sotto usa l'URI "nudo" di
+     * `Events.CONTENT_URI`: per il Calendar Provider è sempre una "app delete" normale, mai una
+     * sync-adapter delete. Per un calendario di un account non locale questo NON rimuove subito la
+     * riga: la marca `deleted=1` (rimuovendo solo le sue occorrenze materializzate, cioè quello che
+     * l'app Calendario del device mostra) e la nasconde alle query successive di un chiamante non
+     * sync-adapter — comprese le nostre, che quindi non hanno modo di distinguerla da una riga
+     * davvero sparita: [idPresenti] non la trova più, [cancellatiBatch] la conta comunque, e il
+     * risultato appare "completato" a tutti gli effetti. La rimozione vera arriva solo quando il
+     * sync adapter dell'account propaga quel flag al server. Usare `CALLER_IS_SYNCADAPTER` qui
+     * bypasserebbe quel meccanismo (niente flag "dirty" da propagare): l'evento sparirebbe solo su
+     * *questo* device, restando vivo per sempre sul server e su ogni altro device collegato allo
+     * stesso account — peggio del problema che risolverebbe. La mitigazione possibile, quella
+     * adottata sotto, è duplice: chiedere una sincronizzazione immediata (best-effort, vedi
+     * [richiediSyncSeOpportuno]) e riportare nel risultato quali calendari sono coinvolti e col
+     * loro stato di sincronizzazione, così chi chiama può informarne l'utente invece di lasciarlo
+     * credere che sia già tutto risolto ovunque (vedi [RisultatoEliminazioneEventi.notaSincronizzazione]).
      */
     fun eliminaEventi(eventIds: List<Long>): RisultatoEliminazioneEventi {
         if (eventIds.isEmpty()) {
             return RisultatoEliminazioneEventi(0, 0, fallbackTentato = false, cancellatiFallback = 0, idsNonCancellati = emptyList())
         }
 
+        // Va risolto PRIMA della delete: una volta marcata deleted=1, una riga su un calendario
+        // sincronizzato sparisce anche alle nostre query (vedi la doc della funzione), quindi non
+        // sapremmo più a quale calendario apparteneva.
+        val calendariCoinvolti = calendariDegliEventi(eventIds)
+
         val selezione = "${CalendarContract.Events._ID} IN (${eventIds.joinToString(",") { "?" }})"
         val args = eventIds.map { it.toString() }.toTypedArray()
         val cancellatiBatch = context.contentResolver.delete(CalendarContract.Events.CONTENT_URI, selezione, args)
 
-        if (cancellatiBatch >= eventIds.size) {
-            return RisultatoEliminazioneEventi(eventIds.size, cancellatiBatch, fallbackTentato = false, cancellatiFallback = 0, idsNonCancellati = emptyList())
+        val risultatoBase = if (cancellatiBatch >= eventIds.size) {
+            RisultatoEliminazioneEventi(eventIds.size, cancellatiBatch, fallbackTentato = false, cancellatiFallback = 0, idsNonCancellati = emptyList())
+        } else {
+            val idsRimasti = idPresenti(eventIds)
+            var cancellatiFallback = 0
+            val idsNonCancellati = mutableListOf<Long>()
+            for (id in idsRimasti) {
+                val righe = context.contentResolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, id), null, null)
+                if (righe > 0) cancellatiFallback++ else idsNonCancellati += id
+            }
+            RisultatoEliminazioneEventi(
+                idsRichiesti = eventIds.size,
+                cancellatiBatch = cancellatiBatch,
+                fallbackTentato = true,
+                cancellatiFallback = cancellatiFallback,
+                idsNonCancellati = idsNonCancellati
+            )
         }
 
-        val idsRimasti = idPresenti(eventIds)
-        var cancellatiFallback = 0
-        val idsNonCancellati = mutableListOf<Long>()
-        for (id in idsRimasti) {
-            val righe = context.contentResolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, id), null, null)
-            if (righe > 0) cancellatiFallback++ else idsNonCancellati += id
+        if (risultatoBase.completato) {
+            richiediSyncSeOpportuno(calendariCoinvolti)
         }
 
-        return RisultatoEliminazioneEventi(
-            idsRichiesti = eventIds.size,
-            cancellatiBatch = cancellatiBatch,
-            fallbackTentato = true,
-            cancellatiFallback = cancellatiFallback,
-            idsNonCancellati = idsNonCancellati
+        return risultatoBase.copy(
+            calendariSincronizzati = calendariCoinvolti
+                .filter { it.accountType != CalendarContract.ACCOUNT_TYPE_LOCAL && it.syncEventsAttivo }
+                .map { it.nome }.distinct(),
+            calendariSyncDisattivata = calendariCoinvolti
+                .filter { it.accountType != CalendarContract.ACCOUNT_TYPE_LOCAL && !it.syncEventsAttivo }
+                .map { it.nome }.distinct()
         )
     }
 
@@ -299,6 +369,73 @@ class CalendarWriter(private val context: Context) {
             while (cursor.moveToNext()) presenti += cursor.getLong(idx)
         }
         return presenti
+    }
+
+    private data class CalendarioEvento(val nome: String, val account: String, val accountType: String, val syncEventsAttivo: Boolean)
+
+    /** Calendari (deduplicati) a cui appartengono [eventIds], letti PRIMA di una eventuale delete (vedi il perché in [eliminaEventi]). */
+    private fun calendariDegliEventi(eventIds: List<Long>): List<CalendarioEvento> {
+        val calendarIds = mutableSetOf<Long>()
+        val selezioneEventi = "${CalendarContract.Events._ID} IN (${eventIds.joinToString(",") { "?" }})"
+        val argsEventi = eventIds.map { it.toString() }.toTypedArray()
+        context.contentResolver.query(
+            CalendarContract.Events.CONTENT_URI, arrayOf(CalendarContract.Events.CALENDAR_ID), selezioneEventi, argsEventi, null
+        )?.use { cursor ->
+            val idx = cursor.getColumnIndexOrThrow(CalendarContract.Events.CALENDAR_ID)
+            while (cursor.moveToNext()) calendarIds += cursor.getLong(idx)
+        }
+        if (calendarIds.isEmpty()) return emptyList()
+
+        val out = mutableListOf<CalendarioEvento>()
+        val selezioneCal = "${CalendarContract.Calendars._ID} IN (${calendarIds.joinToString(",") { "?" }})"
+        val argsCal = calendarIds.map { it.toString() }.toTypedArray()
+        context.contentResolver.query(
+            CalendarContract.Calendars.CONTENT_URI,
+            arrayOf(
+                CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
+                CalendarContract.Calendars.ACCOUNT_NAME,
+                CalendarContract.Calendars.ACCOUNT_TYPE,
+                CalendarContract.Calendars.SYNC_EVENTS
+            ),
+            selezioneCal, argsCal, null
+        )?.use { cursor ->
+            val idxNome = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME)
+            val idxAccount = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.ACCOUNT_NAME)
+            val idxAccountType = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.ACCOUNT_TYPE)
+            val idxSync = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.SYNC_EVENTS)
+            while (cursor.moveToNext()) {
+                out += CalendarioEvento(
+                    nome = cursor.getString(idxNome) ?: cursor.getString(idxAccount),
+                    account = cursor.getString(idxAccount),
+                    accountType = cursor.getString(idxAccountType),
+                    syncEventsAttivo = cursor.getInt(idxSync) != 0
+                )
+            }
+        }
+        return out
+    }
+
+    /**
+     * Richiede una sincronizzazione immediata (best-effort) per gli account dei calendari
+     * sincronizzati coinvolti, per accorciare la finestra prima che la cancellazione "soft" (vedi
+     * [eliminaEventi]) raggiunga davvero il server. Fire-and-forget: `requestSync` è asincrona e
+     * non offre un modo affidabile per sapere quando (o se) viene onorata — il sistema la ignora
+     * silenziosamente se l'utente ha disattivato la sincronizzazione automatica per l'account o
+     * per questo specifico calendario, che è esattamente il caso già segnalato all'utente tramite
+     * [RisultatoEliminazioneEventi.calendariSyncDisattivata].
+     */
+    private fun richiediSyncSeOpportuno(calendari: List<CalendarioEvento>) {
+        calendari
+            .filter { it.accountType != CalendarContract.ACCOUNT_TYPE_LOCAL && it.syncEventsAttivo }
+            .map { Account(it.account, it.accountType) }
+            .distinct()
+            .forEach { account ->
+                val extras = Bundle().apply {
+                    putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
+                    putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
+                }
+                ContentResolver.requestSync(account, CalendarContract.AUTHORITY, extras)
+            }
     }
 
     /**

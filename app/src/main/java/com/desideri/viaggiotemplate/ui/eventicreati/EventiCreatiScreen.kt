@@ -53,9 +53,13 @@ import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -160,7 +164,20 @@ fun EventiCreatiScreen() {
     BackHandler(enabled = mostraMappa) { mostraMappa = false }
     BackHandler(enabled = stato.esecuzioneSelezionata != null && !mostraMappa) { viewModel.tornaAiRisultati() }
 
-    Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
+    // Snackbar, non un dialog: la nota (vedi StatoEventiCreati.notaEliminazione) è informativa,
+    // mai un errore — non deve richiedere un tocco per essere scartata.
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(stato.notaEliminazione) {
+        stato.notaEliminazione?.let { nota ->
+            snackbarHostState.showSnackbar(nota, duration = SnackbarDuration.Long)
+            viewModel.notaEliminazioneMostrata()
+        }
+    }
+
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { padding ->
         if (permessoConcesso && mostraMappa && stato.esecuzioneSelezionata != null) {
             // Fuori dalla Column con padding extra sotto, così riceve lo stesso spazio "grezzo" di
             // Scaffold usato dalle altre viste mappa (TemplateMappaScreen/TrattaMappaScreen).

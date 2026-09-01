@@ -24,7 +24,8 @@ sealed interface StatoEliminaPassati {
     /** [passate] è la lista completa (non troncata) da mostrare/elaborare; il troncamento è solo nella UI. */
     data class Conferma(val passate: List<EsecuzioneCreata>) : StatoEliminaPassati
     data object Eliminazione : StatoEliminaPassati
-    data class Completato(val numero: Int) : StatoEliminaPassati
+    /** [esiti] sono i risultati calendario delle sole esecuzioni eliminate con successo, usati per la nota di sincronizzazione (vedi RisultatoEliminazioneEventi.notaSincronizzazioneAggregata) — non include chi ha eliminato solo la registrazione locale (eliminaAncheCalendario=false). */
+    data class Completato(val numero: Int, val esiti: List<RisultatoEliminazioneEventi> = emptyList()) : StatoEliminaPassati
     /**
      * Almeno un'esecuzione non ha potuto eliminare tutti i suoi eventi dal calendario (stesso
      * criterio "niente eliminazioni silenziose" di [RisultatoEliminazioneEventi]/fix a27592d):
@@ -69,6 +70,7 @@ class EliminaPassatiViewModel(private val repository: EsecuzioneCreataRepository
         _stato.value = StatoEliminaPassati.Eliminazione
         viewModelScope.launch {
             var eliminateConSuccesso = 0
+            val esitiSuccesso = mutableListOf<RisultatoEliminazioneEventi>()
             val nonCompletate = mutableListOf<Pair<EsecuzioneCreata, RisultatoEliminazioneEventi>>()
             val calendarWriter = if (eliminaAncheCalendario) CalendarWriter(context) else null
             try {
@@ -81,13 +83,14 @@ class EliminaPassatiViewModel(private val repository: EsecuzioneCreataRepository
                                 nonCompletate += esecuzione to esito
                                 continue
                             }
+                            esitiSuccesso += esito
                         }
                     }
                     repository.elimina(esecuzione.id)
                     eliminateConSuccesso++
                 }
                 _stato.value = if (nonCompletate.isEmpty()) {
-                    StatoEliminaPassati.Completato(eliminateConSuccesso)
+                    StatoEliminaPassati.Completato(eliminateConSuccesso, esitiSuccesso)
                 } else {
                     StatoEliminaPassati.ErroreParziale(eliminateConSuccesso, nonCompletate)
                 }

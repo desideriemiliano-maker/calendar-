@@ -28,6 +28,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
 import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
+import com.desideri.viaggiotemplate.domain.calendar.notaSincronizzazioneAggregata
 import java.time.format.DateTimeFormatter
 
 private val FORMATO_DATA_ELIMINA_PASSATI: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
@@ -59,15 +60,18 @@ fun EliminaPassatiHost(viewModel: EliminaPassatiViewModel) {
             onConferma = { eliminaAncheCalendario -> viewModel.conferma(context, statoCorrente.passate, eliminaAncheCalendario) },
             onAnnulla = viewModel::annulla
         )
-        is StatoEliminaPassati.Completato -> DialogInfo(
-            titolo = "Eliminazione completata",
-            messaggio = if (statoCorrente.numero == 1) {
-                "1 evento creato eliminato."
-            } else {
-                "${statoCorrente.numero} eventi creati eliminati."
-            },
-            onChiudi = viewModel::annulla
-        )
+        is StatoEliminaPassati.Completato -> {
+            val base = if (statoCorrente.numero == 1) "1 evento creato eliminato." else "${statoCorrente.numero} eventi creati eliminati."
+            // Nota calma, non un errore: appesa alla stessa conferma già mostrata per ogni
+            // eliminazione in blocco, invece di un secondo dialog per un'informazione che non
+            // richiede un'azione nel caso comune (vedi RisultatoEliminazioneEventi.notaSincronizzazione).
+            val nota = statoCorrente.esiti.notaSincronizzazioneAggregata()
+            DialogInfo(
+                titolo = "Eliminazione completata",
+                messaggio = if (nota != null) "$base\n\n$nota" else base,
+                onChiudi = viewModel::annulla
+            )
+        }
         is StatoEliminaPassati.ErroreParziale -> DialogErroreParzialeEliminaPassati(esito = statoCorrente, onChiudi = viewModel::annulla)
         is StatoEliminaPassati.Errore -> DialogInfo(titolo = "Eliminazione non riuscita", messaggio = statoCorrente.messaggio, onChiudi = viewModel::annulla)
     }

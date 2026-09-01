@@ -10,6 +10,7 @@ import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
+import com.desideri.viaggiotemplate.domain.calendar.notaSincronizzazione
 import com.desideri.viaggiotemplate.domain.calendar.passata
 import com.desideri.viaggiotemplate.repository.EsecuzioneCreataRepository
 import com.desideri.viaggiotemplate.ui.AppContainer
@@ -32,7 +33,15 @@ data class StatoEventiCreati(
     val caricamentoEventi: Boolean = false,
     val messaggio: String? = null,
     /** Valorizzato quando l'eliminazione dal calendario non ha rimosso tutti gli eventi richiesti: la registrazione locale NON viene toccata in quel caso, per permettere di riprovare. */
-    val erroreEliminazioneCalendario: RisultatoEliminazioneEventi? = null
+    val erroreEliminazioneCalendario: RisultatoEliminazioneEventi? = null,
+    /**
+     * Nota informativa "leggera" (vedi [notaSincronizzazione]) dopo un'eliminazione dal calendario
+     * riuscita che coinvolge un calendario non locale: mai un errore, solo un promemoria che la
+     * rimozione dal server può richiedere qualche istante (o un'azione se la sync è disattivata).
+     * Pensata per una snackbar, non un dialog — nessuna azione bloccante richiesta nel caso comune.
+     * Si autoconsuma (vedi [notaEliminazioneMostrata]) dopo che la UI l'ha mostrata una volta.
+     */
+    val notaEliminazione: String? = null
 ) {
     /** Esecuzioni che rispettano il filtro data (per data di inizio del primo evento, cioè del viaggio) ed [mostraPassati], ordinate per quella data secondo [ordineAscendente]. */
     val risultati: List<EsecuzioneCreata>
@@ -120,6 +129,7 @@ class EventiCreatiViewModel(
     fun eliminaEsecuzione(context: Context, esecuzione: EsecuzioneCreata, eliminaAncheCalendario: Boolean) {
         viewModelScope.launch {
             try {
+                var nota: String? = null
                 if (eliminaAncheCalendario) {
                     val eventIds = repository.eventIdsPer(esecuzione.id)
                     if (eventIds.isNotEmpty()) {
@@ -128,11 +138,14 @@ class EventiCreatiViewModel(
                             _stato.value = _stato.value.copy(erroreEliminazioneCalendario = esito)
                             return@launch
                         }
+                        nota = esito.notaSincronizzazione()
                     }
                 }
                 repository.elimina(esecuzione.id)
-                if (_stato.value.esecuzioneSelezionata?.id == esecuzione.id) {
-                    _stato.value = _stato.value.copy(esecuzioneSelezionata = null, eventiSelezionati = emptyList(), eventIdsSalvati = emptyList(), posizioni = emptyList())
+                _stato.value = if (_stato.value.esecuzioneSelezionata?.id == esecuzione.id) {
+                    _stato.value.copy(esecuzioneSelezionata = null, eventiSelezionati = emptyList(), eventIdsSalvati = emptyList(), posizioni = emptyList(), notaEliminazione = nota)
+                } else {
+                    _stato.value.copy(notaEliminazione = nota)
                 }
             } catch (e: Exception) {
                 _stato.value = _stato.value.copy(messaggio = "Errore nell'eliminazione: ${e.message}")
@@ -143,6 +156,11 @@ class EventiCreatiViewModel(
     /** Chiude il dialog d'errore di [StatoEventiCreati.erroreEliminazioneCalendario]: la registrazione locale resta intatta, l'utente può riprovare dal pulsante elimina. */
     fun chiudiErroreEliminazioneCalendario() {
         _stato.value = _stato.value.copy(erroreEliminazioneCalendario = null)
+    }
+
+    /** Consuma [StatoEventiCreati.notaEliminazione] dopo che la UI l'ha mostrata (snackbar), così non ricompare a una ricomposizione successiva. */
+    fun notaEliminazioneMostrata() {
+        _stato.value = _stato.value.copy(notaEliminazione = null)
     }
 }
 
