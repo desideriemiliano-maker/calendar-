@@ -126,6 +126,11 @@ fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
                             trailingIcon = { Switch(checked = pinchZoomAbilitato, onCheckedChange = null) },
                             onClick = onAlternaPinchZoom
                         )
+                        DropdownMenuItem(
+                            text = { Text("Elimina eventi passati") },
+                            leadingIcon = { Icon(Icons.Filled.DeleteSweep, contentDescription = null) },
+                            onClick = { menuEspanso = false; eliminaPassatiViewModel.avvia() }
+                        )
                         HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("Backup su Drive") },
@@ -136,11 +141,6 @@ fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
                             text = { Text("Ripristina da Drive") },
                             leadingIcon = { Icon(Icons.Filled.CloudDownload, contentDescription = null) },
                             onClick = { menuEspanso = false; activity?.let { backupDriveViewModel.avviaRipristino(it) } }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Elimina eventi passati") },
-                            leadingIcon = { Icon(Icons.Filled.DeleteSweep, contentDescription = null) },
-                            onClick = { menuEspanso = false; eliminaPassatiViewModel.avvia() }
                         )
                         HorizontalDivider()
                         DropdownMenuItem(
