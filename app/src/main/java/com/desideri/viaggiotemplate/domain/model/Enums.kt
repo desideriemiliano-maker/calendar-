@@ -51,5 +51,17 @@ enum class IconaLuogo(val etichetta: String) {
     STAZIONE("Stazione"),
     AEROPORTO("Aeroporto"),
     EDIFICIO("Edificio"),
-    PARCHEGGIO("Parcheggio")
+    PARCHEGGIO("Parcheggio"),
+    SPORT("Sport");
+
+    companion object {
+        /**
+         * Parsing tollerante di [IconaLuogo.name]: un valore sconosciuto — es. un'icona introdotta
+         * da una versione più recente dell'app, letta da un backup ripristinato su una versione
+         * più vecchia che non la conosce ancora — degrada a `null` (nessuna icona) invece di
+         * lanciare, così l'app non va in crash aprendo dati creati altrove. Unico punto da usare
+         * per rileggere questo campo dal database: mai [valueOf] direttamente.
+         */
+        fun daNomeOrNull(nome: String?): IconaLuogo? = nome?.let { n -> values().find { it.name == n } }
+    }
 }

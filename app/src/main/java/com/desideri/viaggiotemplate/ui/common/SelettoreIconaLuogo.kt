@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalParking
@@ -42,6 +43,7 @@ fun IconaLuogo.imageVector(): ImageVector = when (this) {
     IconaLuogo.AEROPORTO -> Icons.Filled.Flight
     IconaLuogo.EDIFICIO -> Icons.Filled.Apartment
     IconaLuogo.PARCHEGGIO -> Icons.Filled.LocalParking
+    IconaLuogo.SPORT -> Icons.Filled.FitnessCenter
 }
 
 /**

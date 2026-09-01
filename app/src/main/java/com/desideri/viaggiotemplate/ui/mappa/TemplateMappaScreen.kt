@@ -446,6 +446,7 @@ private fun iconePerLuogo(context: Context): Map<IconaLuogo, Drawable> = IconaLu
         IconaLuogo.AEROPORTO -> R.drawable.ic_luogo_aeroporto
         IconaLuogo.EDIFICIO -> R.drawable.ic_luogo_edificio
         IconaLuogo.PARCHEGGIO -> R.drawable.ic_luogo_parcheggio
+        IconaLuogo.SPORT -> R.drawable.ic_luogo_sport
     }
     requireNotNull(ContextCompat.getDrawable(context, resId)) { "Icona mancante per $icona" }
 }

@@ -89,7 +89,7 @@ private fun EventoCreatoEntity.toDomainPosizione() = PosizioneEventoCreato(
             latitudine = partenzaLatitudine,
             longitudine = partenzaLongitudine,
             colore = partenzaColore,
-            icona = partenzaIcona?.let { IconaLuogo.valueOf(it) }
+            icona = IconaLuogo.daNomeOrNull(partenzaIcona)
         )
     },
     arrivo = arrivoLuogoId?.let { luogoId ->
@@ -100,7 +100,7 @@ private fun EventoCreatoEntity.toDomainPosizione() = PosizioneEventoCreato(
             latitudine = arrivoLatitudine,
             longitudine = arrivoLongitudine,
             colore = arrivoColore,
-            icona = arrivoIcona?.let { IconaLuogo.valueOf(it) }
+            icona = IconaLuogo.daNomeOrNull(arrivoIcona)
         )
     }
 )
