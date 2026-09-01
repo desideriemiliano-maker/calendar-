@@ -1,14 +1,23 @@
 package com.desideri.viaggiotemplate.ui.tratte
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -18,6 +27,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
@@ -30,7 +40,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -52,6 +67,7 @@ import com.desideri.viaggiotemplate.ui.common.RicercaOrariTreno
 import com.desideri.viaggiotemplate.ui.common.descrizioneFonteOrari
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
 import com.desideri.viaggiotemplate.ui.common.SelettoreNotifica
+import com.desideri.viaggiotemplate.ui.common.imageVector
 import com.desideri.viaggiotemplate.ui.luoghi.LuoghiViewModel
 import com.desideri.viaggiotemplate.ui.luoghi.LuoghiViewModelFactory
 import java.time.LocalDate
@@ -378,9 +394,18 @@ private fun SelettoreArrotondamento(
 }
 
 /**
- * Dropdown per scegliere un Luogo tra quelli esistenti, con una voce sempre presente per crearne
- * uno al volo (nome + indirizzo) senza uscire dall'editor tratta — necessario perché la lista
- * Luoghi può anche essere vuota al primo utilizzo.
+ * Dropdown ricercabile per scegliere un Luogo tra quelli esistenti: con molti luoghi in libreria
+ * scorrere un menu non filtrato diventa scomodo, quindi il campo è editabile e filtra la lista
+ * (per nome o indirizzo) mentre si digita, invece del solo testo readonly di prima. Mantiene
+ * sempre una voce per crearne uno al volo senza uscire dall'editor tratta — necessario perché la
+ * lista Luoghi può anche essere vuota al primo utilizzo — precompilata col testo digitato quando
+ * non corrisponde a nessun luogo esistente.
+ *
+ * Elenco ordinato alfabeticamente per nome (non per l'ordine manuale della schermata Luoghi):
+ * con la ricerca a disposizione l'ordinamento serve soprattutto quando il campo è ancora vuoto
+ * (appena aperto), e in quel caso l'alfabetico è quello che permette di saltare subito alla
+ * lettera giusta — l'ordine manuale è pensato per scorrere la lista intera in Luoghi, non per
+ * uno sguardo rapido qui.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -396,21 +421,59 @@ private fun SelettoreLuogo(
     var espanso by remember { mutableStateOf(false) }
     var mostraDialogNuovo by remember { mutableStateOf(false) }
     val selezionato = luoghi.find { it.id == luogoSelezionatoId }
+    // Riparte sempre vuota quando il menu si apre (vedi onExpandedChange sotto): mostra subito la
+    // lista intera invece di filtrarla sul nome già selezionato, che nasconderebbe le alternative.
+    var ricerca by remember { mutableStateOf("") }
 
-    ExposedDropdownMenuBox(expanded = espanso, onExpandedChange = { espanso = it }, modifier = modifier) {
-        OutlinedTextField(
-            value = selezionato?.nome ?: "Seleziona…", onValueChange = {}, readOnly = true,
-            label = { Text(etichetta) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = espanso) },
-            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
-        )
-        DropdownMenu(expanded = espanso, onDismissRequest = { espanso = false }) {
-            luoghi.forEach { luogo ->
-                DropdownMenuItem(text = { Text(luogo.nome) }, onClick = { onSeleziona(luogo); espanso = false })
+    val luoghiOrdinati = remember(luoghi) { luoghi.sortedBy { it.nome.lowercase() } }
+    val luoghiFiltrati = remember(luoghiOrdinati, ricerca) {
+        if (ricerca.isBlank()) {
+            luoghiOrdinati
+        } else {
+            luoghiOrdinati.filter {
+                it.nome.contains(ricerca, ignoreCase = true) || it.indirizzo?.contains(ricerca, ignoreCase = true) == true
             }
-            if (luoghi.isNotEmpty()) HorizontalDivider()
+        }
+    }
+    val corrispondenzaEsatta = luoghiFiltrati.any { it.nome.equals(ricerca.trim(), ignoreCase = true) }
+
+    ExposedDropdownMenuBox(
+        expanded = espanso,
+        onExpandedChange = { nuovoEspanso -> espanso = nuovoEspanso; if (nuovoEspanso) ricerca = "" },
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            value = if (espanso) ricerca else (selezionato?.nome ?: ""),
+            onValueChange = { ricerca = it; espanso = true },
+            label = { Text(etichetta) },
+            placeholder = { Text("Cerca…") },
+            singleLine = true,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = espanso) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryEditable, enabled = true)
+        )
+        DropdownMenu(
+            expanded = espanso,
+            onDismissRequest = { espanso = false },
+            modifier = Modifier.heightIn(max = 300.dp)
+        ) {
+            if (luoghiFiltrati.isEmpty()) {
+                DropdownMenuItem(text = { Text("Nessun luogo trovato") }, onClick = {}, enabled = false)
+            }
+            luoghiFiltrati.forEach { luogo ->
+                val luogoSelezionato = luogo.id == luogoSelezionatoId
+                DropdownMenuItem(
+                    text = { VoceLuogo(luogo, selezionato = luogoSelezionato) },
+                    onClick = { onSeleziona(luogo); espanso = false },
+                    modifier = if (luogoSelezionato) {
+                        Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
+                    } else {
+                        Modifier
+                    }
+                )
+            }
+            if (luoghiFiltrati.isNotEmpty()) HorizontalDivider()
             DropdownMenuItem(
-                text = { Text("+ Nuovo luogo…") },
+                text = { Text(if (ricerca.isNotBlank() && !corrispondenzaEsatta) "+ Nuovo luogo \"${ricerca.trim()}\"…" else "+ Nuovo luogo…") },
                 onClick = { espanso = false; mostraDialogNuovo = true }
             )
         }
@@ -418,6 +481,7 @@ private fun SelettoreLuogo(
 
     if (mostraDialogNuovo) {
         DialogNuovoLuogo(
+            nomeIniziale = if (ricerca.isNotBlank() && !corrispondenzaEsatta) ricerca.trim() else "",
             onConferma = { nome, indirizzo ->
                 val luogo = Luogo(id = nuovoId(), nome = nome, indirizzo = indirizzo.ifBlank { null })
                 onCreaLuogo(luogo)
@@ -429,9 +493,52 @@ private fun SelettoreLuogo(
     }
 }
 
+/** Riga di un luogo nel dropdown ricercabile: icona e colore come nella card della lista Luoghi, nome bold + segno di spunta quando è quello già selezionato. */
 @Composable
-private fun DialogNuovoLuogo(onConferma: (nome: String, indirizzo: String) -> Unit, onAnnulla: () -> Unit) {
-    var nome by remember { mutableStateOf("") }
+private fun VoceLuogo(luogo: Luogo, selezionato: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(luogo.colore?.let { Color(it) } ?: MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                luogo.icona?.imageVector() ?: Icons.Filled.Place,
+                contentDescription = null,
+                tint = if (luogo.colore != null) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                luogo.nome,
+                fontWeight = if (selezionato) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            luogo.indirizzo?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (selezionato) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(Icons.Filled.Check, contentDescription = "Selezionato", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun DialogNuovoLuogo(nomeIniziale: String = "", onConferma: (nome: String, indirizzo: String) -> Unit, onAnnulla: () -> Unit) {
+    var nome by remember { mutableStateOf(nomeIniziale) }
     var indirizzo by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onAnnulla,
