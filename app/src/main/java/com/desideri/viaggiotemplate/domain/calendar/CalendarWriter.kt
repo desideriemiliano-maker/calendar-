@@ -96,7 +96,9 @@ data class CalendarioDisponibile(
     val nome: String,
     val account: String,
     val accountType: String,
-    val isPrimary: Boolean
+    val isPrimary: Boolean,
+    /** Calendars.SYNC_EVENTS: se false (e l'account non è locale), gli eventi scritti qui non arrivano al server finché l'utente non la riattiva — vedi [CalendarWriter.inserisciEventi]. */
+    val syncEventsAttivo: Boolean = true
 )
 
 /**
@@ -109,6 +111,22 @@ data class EventoDaScrivere(
     val notifica: Notifica,
     val descrizione: String,
     val colore: Int?
+)
+
+/**
+ * Esito di [CalendarWriter.inserisciEventi]: gli id (uno per evento, null dove l'inserimento è
+ * fallito, stesso ordine di input) più, quando il calendario scelto è di un account non locale con
+ * la sincronizzazione disattivata (`Calendars.SYNC_EVENTS = 0`), un avviso da mostrare — a
+ * differenza della cancellazione (vedi [RisultatoEliminazioneEventi]) qui non serve segnalare
+ * anche il caso "sincronizzata ma in corso": un evento appena creato è già visibile localmente su
+ * questo device fin da subito (l'insert non è mai "soft" come una delete), il tempo prima che
+ * arrivi al server/altri device è il comportamento atteso di un qualunque calendario sincronizzato
+ * e non merita un avviso ad ogni "Aggiungi al calendario". La sync disattivata resta comunque
+ * rilevante: senza, l'utente potrebbe non vedere questi eventi da nessun'altra parte.
+ */
+data class RisultatoInserimentoEventi(
+    val idInseriti: List<Long?>,
+    val calendarioSyncDisattivata: Boolean
 )
 
 /**
@@ -131,7 +149,8 @@ class CalendarWriter(private val context: Context) {
             CalendarContract.Calendars.ACCOUNT_TYPE,
             CalendarContract.Calendars.IS_PRIMARY,
             CalendarContract.Calendars.VISIBLE,
-            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL,
+            CalendarContract.Calendars.SYNC_EVENTS
         )
         val out = mutableListOf<CalendarioDisponibile>()
         context.contentResolver.query(
@@ -144,6 +163,7 @@ class CalendarWriter(private val context: Context) {
             val idxPrimary = cursor.getColumnIndex(CalendarContract.Calendars.IS_PRIMARY)
             val idxVisible = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.VISIBLE)
             val idxAccesso = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL)
+            val idxSync = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.SYNC_EVENTS)
 
             while (cursor.moveToNext()) {
                 val visibile = cursor.getInt(idxVisible) != 0
@@ -155,7 +175,8 @@ class CalendarWriter(private val context: Context) {
                     nome = cursor.getString(idxNome) ?: cursor.getString(idxAccount),
                     account = cursor.getString(idxAccount),
                     accountType = cursor.getString(idxAccountType),
-                    isPrimary = idxPrimary >= 0 && cursor.getInt(idxPrimary) != 0
+                    isPrimary = idxPrimary >= 0 && cursor.getInt(idxPrimary) != 0,
+                    syncEventsAttivo = cursor.getInt(idxSync) != 0
                 )
             }
         }
@@ -196,17 +217,31 @@ class CalendarWriter(private val context: Context) {
     }
 
     /**
-     * Inserisce tutti gli eventi calcolati di un template in un'unica chiamata. Ritorna una lista
-     * della STESSA lunghezza e nello STESSO ordine di [eventi] (null dove l'inserimento è
-     * fallito), non solo gli ID riusciti: il chiamante deve poter correlare ogni ID al suo evento
-     * di origine — es. per congelarne la posizione (vedi [com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato])
-     * — cosa impossibile con una lista compattata che perde gli indici falliti.
+     * Inserisce tutti gli eventi calcolati di un template in un'unica chiamata. Gli id in
+     * [RisultatoInserimentoEventi.idInseriti] sono nella STESSA lunghezza e nello STESSO ordine di
+     * [eventi] (null dove l'inserimento è fallito), non solo gli ID riusciti: il chiamante deve
+     * poter correlare ogni ID al suo evento di origine — es. per congelarne la posizione (vedi
+     * [PosizioneEventoCreato]) — cosa impossibile con una lista compattata che perde gli indici
+     * falliti.
+     *
+     * Richiede una sincronizzazione immediata (vedi [richiediSyncSeOpportuno]) UNA volta sola per
+     * l'intera chiamata, non per singolo evento: sollecitarla ripetutamente non avrebbe alcun
+     * effetto in più (il sistema le accorpa comunque) e sprecherebbe solo chiamate.
      */
     fun inserisciEventi(
         calendario: CalendarioDisponibile,
         data: LocalDate,
         eventi: List<EventoDaScrivere>
-    ): List<Long?> = eventi.map { inserisciEvento(calendario, data, it) }
+    ): RisultatoInserimentoEventi {
+        val idInseriti = eventi.map { inserisciEvento(calendario, data, it) }
+        if (idInseriti.any { it != null }) {
+            richiediSyncSeOpportuno(listOf(calendario.aCalendarioEvento()))
+        }
+        val syncDisattivata = calendario.accountType != CalendarContract.ACCOUNT_TYPE_LOCAL && !calendario.syncEventsAttivo
+        return RisultatoInserimentoEventi(idInseriti, syncDisattivata)
+    }
+
+    private fun CalendarioDisponibile.aCalendarioEvento() = CalendarioEvento(nome, account, accountType, syncEventsAttivo)
 
     /**
      * EVENT_LOCATION per [tratta]: le coordinate GPS del Luogo di arrivo, quando impostate, hanno

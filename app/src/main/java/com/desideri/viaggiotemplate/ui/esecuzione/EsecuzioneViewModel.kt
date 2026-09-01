@@ -492,8 +492,10 @@ class EsecuzioneViewModel(
             // di eventiDaScrivere: serve per correlare ogni id riuscito alla sua tratta di origine,
             // per congelarne partenza/arrivo (vedi PosizioneEventoCreato) — una lista compattata
             // (solo i successi) perderebbe quella corrispondenza in caso di fallimento parziale.
-            val idInseriti = writer.inserisciEventi(calendario, s.data, eventiDaScrivere)
-            val eventiConId = eventiDaScrivere.zip(idInseriti).mapNotNull { (evD, id) -> id?.let { evD to it } }
+            // La stessa chiamata richiede anche, una sola volta, una sincronizzazione immediata
+            // best-effort del calendario scelto (vedi CalendarWriter.inserisciEventi).
+            val risultatoInserimento = writer.inserisciEventi(calendario, s.data, eventiDaScrivere)
+            val eventiConId = eventiDaScrivere.zip(risultatoInserimento.idInseriti).mapNotNull { (evD, id) -> id?.let { evD to it } }
             if (eventiConId.isNotEmpty()) {
                 val esecuzioneId = UUID.randomUUID().toString()
                 // Orario di inizio del più mattiniero degli eventi (stesso arrotondamento scritto su
@@ -520,10 +522,17 @@ class EsecuzioneViewModel(
                     )
                 }
             }
+            // Sync disattivata per il calendario scelto: vale la pena dirlo anche in creazione
+            // (a differenza del solo "in corso", non menzionato qui — vedi la doc di
+            // RisultatoInserimentoEventi), perché senza l'utente potrebbe non vedere questi eventi
+            // da nessun'altra parte finché non la riattiva.
+            val notaSync = if (risultatoInserimento.calendarioSyncDisattivata) {
+                " Sincronizzazione disattivata per ${calendario.nome}: resteranno visibili solo su questo dispositivo finché non la riattivi."
+            } else ""
             _stato.value = if (eventiConId.size == s.eventiCalcolati.size) {
-                s.copy(messaggio = "${eventiConId.size} eventi aggiunti al calendario ✓")
+                s.copy(messaggio = "${eventiConId.size} eventi aggiunti al calendario ✓$notaSync")
             } else {
-                s.copy(messaggio = "Aggiunti solo ${eventiConId.size} su ${s.eventiCalcolati.size} eventi: controlla il calendario scelto")
+                s.copy(messaggio = "Aggiunti solo ${eventiConId.size} su ${s.eventiCalcolati.size} eventi: controlla il calendario scelto$notaSync")
             }
         } catch (e: Exception) {
             _stato.value = s.copy(messaggio = "Errore nella scrittura sul calendario: ${e.message}")
