@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -95,6 +96,15 @@ private fun RegistroAttivitaContenuto(onChiudi: () -> Unit, viewModel: RegistroA
     val stato by viewModel.stato.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // Il ViewModel sopravvive alla chiusura/riapertura di questo Dialog (stesso ViewModelStoreOwner
+    // per tutta la vita dell'Activity: chiudere il dialog non lo distrugge, solo il suo `init{}` gira
+    // una volta sola alla prima apertura), quindi senza questo effetto la lista mostrata resterebbe
+    // quella catturata la primissima volta — ogni riapertura successiva mostrerebbe solo le voci di
+    // allora, non quelle scritte nel frattempo. `LaunchedEffect(Unit)` invece riparte a ogni
+    // ricomposizione di QUESTO composable, che è sì rimosso e ricreato a ogni apertura/chiusura del
+    // dialog (il ramo `if (mostraRegistroAttivita)` in AppNavigation).
+    LaunchedEffect(Unit) { viewModel.carica() }
 
     var testoRicerca by remember { mutableStateOf("") }
     var filtroCategoria by remember { mutableStateOf<FiltroCategoria>(FiltroCategoria.Tutte) }

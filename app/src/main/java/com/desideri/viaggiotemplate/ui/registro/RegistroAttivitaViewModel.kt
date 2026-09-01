@@ -33,14 +33,17 @@ private val FORMATO_EXPORT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SS
  * Filtro categoria e ricerca testuale restano nella UI (stesso pattern di LuoghiScreen/TratteScreen/
  * TemplateScreen: stato locale della Composable, derivato con `remember`), qui c'è solo l'elenco
  * grezzo più recente-prima.
+ *
+ * Niente `init { carica() }`: questo ViewModel sopravvive alla chiusura/riapertura del Dialog che
+ * lo ospita (stesso ViewModelStoreOwner per tutta la vita dell'Activity), quindi un caricamento
+ * solo alla costruzione mostrerebbe per sempre lo stato della primissima apertura — bug osservato
+ * ("solo la prima azione registrata"). È [RegistroAttivitaScreen] a richiamare [carica] da un
+ * `LaunchedEffect(Unit)`, che riparte a ogni apertura del dialog anche quando il ViewModel non
+ * viene ricreato.
  */
 class RegistroAttivitaViewModel : ViewModel() {
     private val _stato = MutableStateFlow(StatoRegistroAttivita())
     val stato: StateFlow<StatoRegistroAttivita> = _stato.asStateFlow()
-
-    init {
-        carica()
-    }
 
     fun carica() {
         viewModelScope.launch {

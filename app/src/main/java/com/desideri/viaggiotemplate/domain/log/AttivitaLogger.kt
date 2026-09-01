@@ -2,6 +2,7 @@ package com.desideri.viaggiotemplate.domain.log
 
 import android.content.Context
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -116,6 +117,24 @@ object AttivitaLogger {
     fun init(context: Context) {
         if (::directory.isInitialized) return
         directory = File(context.applicationContext.noBackupFilesDir, NOME_DIRECTORY)
+    }
+
+    /** Come [init], ma senza passare da un `Context` Android (indisponibile nei test JVM puri) e senza il guard "una volta sola": ogni test parte da una directory temporanea pulita. */
+    internal fun initPerTest(directory: File) {
+        this.directory = directory
+        this.ultimaRotazione = null
+    }
+
+    /**
+     * Aspetta che ogni scrittura già accodata su [scope] sia completata. [scope] serializza
+     * (parallelismo 1, FIFO): un task accodato qui dopo N scritture parte solo a N completate, quindi
+     * attenderlo equivale ad attendere tutte le precedenti. Solo per i test: la produzione non deve
+     * mai attendere le proprie scritture (vedi la doc della classe).
+     */
+    internal suspend fun attendiScrittureInSospesoPerTest() {
+        val completamento = CompletableDeferred<Unit>()
+        scope.launch { completamento.complete(Unit) }
+        completamento.await()
     }
 
     fun azioneUtente(descrizione: String) {
