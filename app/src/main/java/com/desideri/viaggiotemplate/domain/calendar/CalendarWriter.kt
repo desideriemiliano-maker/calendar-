@@ -233,6 +233,21 @@ class CalendarWriter(private val context: Context) {
         zonaOraria: ZoneId = ZoneId.systemDefault()
     ): Long? {
         val evento = eventoDaScrivere.evento
+
+        // Difesa in profondità, non il percorso atteso: risolviIstanti garantisce già fine > inizio.
+        // Se qualcosa a monte lo violasse comunque (un caso non coperto, un futuro refactor), il
+        // Calendar Provider accetterebbe comunque l'insert con un DTEND <= DTSTART — l'evento
+        // risulterebbe scritto (id valido, "N su N riusciti") ma il provider non ne materializza
+        // alcuna istanza: invisibile in ogni vista del calendario, un fantasma indistinguibile da un
+        // inserimento riuscito finché qualcuno non lo cerca a mano. Meglio fallire qui, rumorosamente.
+        if (!fine.isAfter(inizio)) {
+            AttivitaLogger.errore(
+                "Inserimento evento calendario rifiutato: fine ($fine) non successiva all'inizio ($inizio)",
+                evento.titolo()
+            )
+            return null
+        }
+
         val inizioMillis = inizio.atZone(zonaOraria).toInstant().toEpochMilli()
         val fineMillis = fine.atZone(zonaOraria).toInstant().toEpochMilli()
 
@@ -254,8 +269,38 @@ class CalendarWriter(private val context: Context) {
         val eventoId = uri?.let { ContentUris.parseId(it) } ?: return null
 
         eventoDaScrivere.notifica.minuti?.let { minuti -> inserisciPromemoria(eventoId, minuti) }
+        verificaScritturaEvento(eventoId, inizioMillis, fineMillis)
 
         return eventoId
+    }
+
+    /**
+     * Rilegge DTSTART/DTEND appena scritti e li confronta con quelli attesi: un id valido dal
+     * provider (vedi la doc di [inserisciEvento]) non garantisce che l'evento sia davvero
+     * materializzato come previsto. Solo diagnostica — logga un'incongruenza invece di farla
+     * restare invisibile, non tocca l'esito già ritornato al chiamante (l'evento un id ce l'ha
+     * comunque, "fallirlo" a questo punto significherebbe inventare un errore diverso da quello
+     * vero, se mai ce n'è uno).
+     */
+    private fun verificaScritturaEvento(eventoId: Long, inizioAtteso: Long, fineAtteso: Long) {
+        val letti = context.contentResolver.query(
+            ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventoId),
+            arrayOf(CalendarContract.Events.DTSTART, CalendarContract.Events.DTEND),
+            null, null, null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val idxInizio = cursor.getColumnIndexOrThrow(CalendarContract.Events.DTSTART)
+            val idxFine = cursor.getColumnIndexOrThrow(CalendarContract.Events.DTEND)
+            cursor.getLong(idxInizio) to cursor.getLong(idxFine)
+        }
+        if (letti == null) {
+            AttivitaLogger.errore("Verifica post-inserimento: evento $eventoId non rileggibile subito dopo la scrittura")
+        } else if (letti.first != inizioAtteso || letti.second != fineAtteso) {
+            AttivitaLogger.errore(
+                "Verifica post-inserimento: evento $eventoId scritto con DTSTART/DTEND diversi da quelli attesi",
+                "atteso $inizioAtteso-$fineAtteso, letto ${letti.first}-${letti.second}"
+            )
+        }
     }
 
     /**
@@ -518,17 +563,46 @@ class CalendarWriter(private val context: Context) {
      * per questo specifico calendario, che è esattamente il caso già segnalato all'utente tramite
      * [RisultatoEliminazioneEventi.calendariSyncDisattivata].
      */
+    /**
+     * `SYNC_EXTRAS_EXPEDITED` da solo chiede al sistema di non aspettare il prossimo giro
+     * programmato, ma un dispositivo può comunque posticiparla (Doze, un backoff residuo da un
+     * tentativo precedente, l'impostazione "sincronizzazione automatica" disattivata): sintomo
+     * osservato, l'evento compariva solo minuti dopo, e solo perché un'altra azione (una
+     * cancellazione) aveva innescato un'altra sync nel frattempo. `IGNORE_BACKOFF`/
+     * `IGNORE_SETTINGS` forzano la richiesta anche in quei casi — legittimo qui perché la sync è
+     * conseguenza diretta di un'azione esplicita dell'utente (ha appena scritto/cancellato eventi),
+     * non una sync periodica in background.
+     */
     private fun richiediSyncSeOpportuno(calendari: List<CalendarioEvento>) {
         calendari
             .filter { it.accountType != CalendarContract.ACCOUNT_TYPE_LOCAL && it.syncEventsAttivo }
             .map { Account(it.account, it.accountType) }
             .distinct()
             .forEach { account ->
-                val extras = Bundle().apply {
-                    putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
-                    putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
+                val inizioMisurazione = System.currentTimeMillis()
+                try {
+                    val extras = Bundle().apply {
+                        putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
+                        putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
+                        putBoolean(ContentResolver.SYNC_EXTRAS_IGNORE_BACKOFF, true)
+                        putBoolean(ContentResolver.SYNC_EXTRAS_IGNORE_SETTINGS, true)
+                    }
+                    ContentResolver.requestSync(account, CalendarContract.AUTHORITY, extras)
+                    AttivitaLogger.integrazione(
+                        // Mai il nome account: per un account Google coincide con l'email (vedi la
+                        // nota sulla privacy in AttivitaLogger) — il tipo basta a diagnosticare.
+                        descrizione = "Richiesta sync calendario (account ${account.type})",
+                        esito = EsitoRegistro.SUCCESSO,
+                        durataMs = System.currentTimeMillis() - inizioMisurazione
+                    )
+                } catch (e: Exception) {
+                    AttivitaLogger.integrazione(
+                        descrizione = "Richiesta sync calendario (account ${account.type})",
+                        esito = EsitoRegistro.ERRORE,
+                        durataMs = System.currentTimeMillis() - inizioMisurazione,
+                        dettaglioErrore = e.message
+                    )
                 }
-                ContentResolver.requestSync(account, CalendarContract.AUTHORITY, extras)
             }
     }
 

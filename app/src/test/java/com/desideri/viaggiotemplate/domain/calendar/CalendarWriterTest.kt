@@ -106,6 +106,25 @@ class CalendarWriterTest {
     }
 
     @Test
+    fun `sequenza reale segnalata dall'utente - 15-00-18-00 seguito da 18-00-00-00`() {
+        // Caso concreto: tratta "15:00 Todi / Todi 18:00" seguita da "18:00 Todi / Cantù Casa 00:00".
+        // Il secondo evento deve finire alle 00:00 del giorno SUCCESSIVO, non dello stesso giorno
+        // (altrimenti DTEND <= DTSTART: il Calendar Provider accetta comunque l'insert restituendo
+        // un id, ma non materializza alcuna istanza — evento scritto ma invisibile ovunque).
+        val eventi = listOf(
+            daScrivere("A", LocalTime.of(15, 0), LocalTime.of(18, 0)),
+            daScrivere("B", LocalTime.of(18, 0), LocalTime.MIDNIGHT)
+        )
+        val istanti = risolviIstanti(data, eventi)
+
+        assertEquals(data.atTime(15, 0), istanti[0].first)
+        assertEquals(data.atTime(18, 0), istanti[0].second)
+        assertEquals(data.atTime(18, 0), istanti[1].first)
+        assertEquals(data.plusDays(1).atTime(0, 0), istanti[1].second)
+        assertTrue("la fine del secondo evento deve essere sul giorno successivo", istanti[1].second.isAfter(istanti[1].first))
+    }
+
+    @Test
     fun `evento a cavallo di mezzanotte esatto a inizio giornata non scavalca due volte`() {
         val eventi = listOf(
             daScrivere("1", LocalTime.of(0, 0), LocalTime.of(1, 0)),
