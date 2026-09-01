@@ -87,10 +87,23 @@ class MotoreCalcolo {
             }
         }
 
+        // Arrotondamento di ogni blocco calcolato indipendentemente dal vicino (vedi
+        // applicaArrotondamento), poi un passaggio in ordine cronologico che vincola i blocchi a
+        // non sovrapporsi mai — vedi il commento su vincolaBlocchiNonSovrapposti.
+        val blocIniPerSlot = arrayOfNulls<LocalTime>(slotsRisolti.size)
+        val blocFinPerSlot = arrayOfNulls<LocalTime>(slotsRisolti.size)
+        for (i in slotsRisolti.indices) {
+            val (blocIni, blocFin) = applicaArrotondamento(slotsRisolti[i].trattaSelezionata, inizio[i]!!, fine[i]!!)
+            blocIniPerSlot[i] = blocIni
+            blocFinPerSlot[i] = blocFin
+        }
+        vincolaBlocchiNonSovrapposti(blocIniPerSlot, blocFinPerSlot)
+
         return slotsRisolti.mapIndexed { i, slotRisolto ->
             val ini = inizio[i]!!
             val fin = fine[i]!!
-            val (blocIni, blocFin) = applicaArrotondamento(slotRisolto.trattaSelezionata, ini, fin)
+            val blocIni = blocIniPerSlot[i]!!
+            val blocFin = blocFinPerSlot[i]!!
 
             val alternative = if (slotRisolto.trattaCandidate.size > 1) {
                 slotRisolto.trattaCandidate
@@ -216,6 +229,38 @@ class MotoreCalcolo {
             Arrotondamento.ECCESSO -> arrotondaSu(fine, step)
         }
         return blocIni to blocFin
+    }
+
+    /**
+     * Vincola in-place [blocIni]/[blocFin] (allineati per indice a `slotsRisolti`, quindi già in
+     * ordine cronologico) a non sovrapporsi mai col blocco precedente: se l'arrotondamento
+     * indipendente di un blocco lo fa iniziare prima che il precedente sia finito — il bug
+     * segnalato, quando lo scarto reale tra due tratte è più piccolo dell'espansione combinata dei
+     * due arrotondamenti (es. arrivo reale 17:31 arrotondato per eccesso a 17:40, partenza reale
+     * successiva 17:36 arrotondata per difetto a 17:30) — lo si sposta in avanti fino a toccare
+     * esattamente la fine del precedente, mai oltre.
+     *
+     * Si tocca solo l'inizio del blocco in conflitto, non la fine di quello precedente: spostare
+     * indietro un blocco già confermato (magari mostrato/salvato altrove nel frattempo) sarebbe più
+     * sorprendente che accorciare il margine "di cortesia" del blocco successivo, che è comunque
+     * quello con meno margine reale disponibile in quel punto del viaggio.
+     *
+     * Se anche la fine del blocco in conflitto cade prima del nuovo inizio (un caso limite: uno
+     * scarto reale così minimo, o una cascata di aggiustamenti su tratte consecutive molto ravvicinate,
+     * che persino la fine arrotondata del blocco non basterebbe più a contenerlo) la fine viene
+     * spinta alla pari dell'inizio: un blocco di durata nulla — due orari uguali — invece di un
+     * blocco con la fine prima dell'inizio, che nessun calendario saprebbe rappresentare in modo
+     * sensato. Non accorcia mai un blocco sotto la propria durata reale originaria in altri punti:
+     * qui si allarga solo l'arrotondamento, mai la tratta stessa.
+     */
+    private fun vincolaBlocchiNonSovrapposti(blocIni: Array<LocalTime?>, blocFin: Array<LocalTime?>) {
+        for (i in 1 until blocIni.size) {
+            val fineBlocoPrecedente = blocFin[i - 1]!!
+            if (blocIni[i]!! < fineBlocoPrecedente) {
+                blocIni[i] = fineBlocoPrecedente
+                if (blocFin[i]!! < fineBlocoPrecedente) blocFin[i] = fineBlocoPrecedente
+            }
+        }
     }
 
     private fun arrotondaGiu(t: LocalTime, step: Int): LocalTime {

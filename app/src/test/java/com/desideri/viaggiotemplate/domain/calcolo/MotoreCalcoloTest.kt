@@ -546,6 +546,106 @@ class MotoreCalcoloTest {
     }
 
     @Test
+    fun `blocchi arrotondati di tratte consecutive non si sovrappongono mai, anche quando lo scarto reale e' piu piccolo dello step (bug segnalato, scenario Lugano-Chiasso)`() {
+        // Dati reali dallo screenshot: arrivo 17:31 a Lugano Stazione, partenza successiva 17:36
+        // (5 minuti di scarto reale) — con step 10 di default, l'arrotondamento indipendente di
+        // ciascun blocco (arrivo per eccesso a 17:40, partenza successiva per difetto a 17:30)
+        // produceva 10 minuti di sovrapposizione (17:30-17:40) tra i due blocchi calendario.
+        val luganoStazione = trattaAuto("lugano-stazione", durata = 15, margine = 0)
+        val stazioneChiasso = trattaAuto("stazione-chiasso", durata = 30, margine = 0)
+
+        val risolti = listOf(
+            SlotRisolto(slot("s0", 0, ancora = true, selezionataId = luganoStazione.id), luganoStazione, listOf(luganoStazione)),
+            SlotRisolto(slot("s1", 1, ancora = true, selezionataId = stazioneChiasso.id), stazioneChiasso, listOf(stazioneChiasso))
+        )
+        // Entrambi ancora (orari reali fissati direttamente, come dallo screenshot): nessuna
+        // propagazione in mezzo, solo l'arrotondamento e il vincolo anti-sovrapposizione sotto test.
+        val ancore = ancora(0, LocalTime.of(17, 16), LocalTime.of(17, 31)) +
+            ancora(1, LocalTime.of(17, 36), LocalTime.of(18, 6))
+
+        val eventi = motore.calcola(risolti, ancore)
+
+        // Gli orari reali (quelli nel titolo) non sono mai toccati dal vincolo.
+        assertEquals(LocalTime.of(17, 16), eventi[0].inizioReale)
+        assertEquals(LocalTime.of(17, 31), eventi[0].fineReale)
+        assertEquals(LocalTime.of(17, 36), eventi[1].inizioReale)
+        assertEquals(LocalTime.of(18, 6), eventi[1].fineReale)
+
+        // Primo blocco invariato (arrotondamento indipendente, nessun vincolo da un blocco precedente).
+        assertEquals(LocalTime.of(17, 10), eventi[0].inizioBlocco)
+        assertEquals(LocalTime.of(17, 40), eventi[0].fineBlocco)
+        // Secondo blocco: l'inizio arrotondato per difetto (17:30) precederebbe la fine del primo
+        // (17:40) -> spinto avanti a toccarla esattamente, mai a sovrapporla. La fine (18:10) resta
+        // quella arrotondata normalmente, essendo ben oltre il nuovo inizio.
+        assertEquals(LocalTime.of(17, 40), eventi[1].inizioBlocco)
+        assertEquals(LocalTime.of(18, 10), eventi[1].fineBlocco)
+
+        assertTrue("i blocchi non devono mai sovrapporsi", eventi[0].fineBlocco <= eventi[1].inizioBlocco)
+    }
+
+    @Test
+    fun `due tratte davvero contigue (margine zero, stesso istante reale di cambio) restano adiacenti senza sovrapporsi`() {
+        val prima = trattaAuto("prima", durata = 15, margine = 0)   // reale 10:03 -> 10:18
+        val dopo = trattaAuto("dopo", durata = 15, margine = 0)     // reale 10:18 -> 10:33 (parte esattamente dove arriva la prima)
+
+        val risolti = listOf(
+            SlotRisolto(slot("s0", 0, ancora = true, selezionataId = prima.id), prima, listOf(prima)),
+            SlotRisolto(slot("s1", 1, ancora = false, selezionataId = dopo.id), dopo, listOf(dopo))
+        )
+
+        val eventi = motore.calcola(risolti, ancora(0, LocalTime.of(10, 3), LocalTime.of(10, 18)))
+
+        assertEquals(LocalTime.of(10, 18), eventi[1].inizioReale) // margine 0 -> parte esattamente all'arrivo della prima
+        assertEquals(LocalTime.of(10, 20), eventi[0].fineBlocco)   // 10:18 arrotondato per eccesso
+        // Senza il vincolo, l'inizio del secondo blocco arrotonderebbe per difetto a 10:10, prima
+        // della fine del primo (10:20): spinto avanti a toccarla esattamente.
+        assertEquals(LocalTime.of(10, 20), eventi[1].inizioBlocco)
+        assertEquals(LocalTime.of(10, 40), eventi[1].fineBlocco)   // 10:33 arrotondato per eccesso, ben oltre il nuovo inizio: invariata
+
+        assertTrue(eventi[0].fineBlocco <= eventi[1].inizioBlocco)
+    }
+
+    @Test
+    fun `quando anche la fine arrotondata del blocco cadrebbe prima del nuovo inizio vincolato, viene spinta alla pari (durata nulla, mai negativa)`() {
+        // Step molto diversi tra le due tratte (60 contro 5): l'arrotondamento per eccesso della
+        // prima tratta (step 60) spinge la sua fine molto piu' avanti di quanto farebbe la seconda
+        // tratta (step 5) per la propria, gia' indipendentemente arrotondata. Il vincolo deve quindi
+        // spingere avanti anche la fine del secondo blocco, non solo il suo inizio.
+        val primaStepGrande = trattaAuto("prima", durata = 5, margine = 0, step = 60)   // reale 10:05 -> 10:10
+        val dopoStepPiccolo = trattaAuto("dopo", durata = 1, margine = 0, step = 5)     // reale 10:10 -> 10:11
+
+        val risolti = listOf(
+            SlotRisolto(slot("s0", 0, ancora = true, selezionataId = primaStepGrande.id), primaStepGrande, listOf(primaStepGrande)),
+            SlotRisolto(slot("s1", 1, ancora = false, selezionataId = dopoStepPiccolo.id), dopoStepPiccolo, listOf(dopoStepPiccolo))
+        )
+
+        val eventi = motore.calcola(risolti, ancora(0, LocalTime.of(10, 5), LocalTime.of(10, 10)))
+
+        assertEquals(LocalTime.of(10, 10), eventi[1].inizioReale)
+        assertEquals(LocalTime.of(10, 11), eventi[1].fineReale)
+        assertEquals(LocalTime.of(11, 0), eventi[0].fineBlocco)     // 10:10 arrotondato per eccesso allo step 60
+        // Senza il vincolo, il secondo blocco sarebbe 10:10-10:15 (step 5): entrambi gli estremi
+        // cadono prima della fine del primo blocco (11:00) -> entrambi spinti a 11:00, non solo l'inizio.
+        assertEquals(LocalTime.of(11, 0), eventi[1].inizioBlocco)
+        assertEquals(LocalTime.of(11, 0), eventi[1].fineBlocco)
+
+        assertTrue(eventi[0].fineBlocco <= eventi[1].inizioBlocco)
+        assertTrue("la fine di un blocco non deve mai cadere prima del suo inizio", eventi[1].inizioBlocco <= eventi[1].fineBlocco)
+    }
+
+    @Test
+    fun `un template con una sola tratta non ha vicini con cui confliggere, il blocco resta quello arrotondato normalmente`() {
+        val tratta = trattaAuto("unica", durata = 15, margine = 0)
+        val risolto = SlotRisolto(slot("s0", 0, ancora = true, selezionataId = tratta.id), tratta, listOf(tratta))
+
+        val eventi = motore.calcola(listOf(risolto), ancora(0, LocalTime.of(9, 7), LocalTime.of(9, 22)))
+
+        assertEquals(1, eventi.size)
+        assertEquals(LocalTime.of(9, 0), eventi[0].inizioBlocco)
+        assertEquals(LocalTime.of(9, 30), eventi[0].fineBlocco)
+    }
+
+    @Test
     fun `propagazione avanti, a parita' di partenza, preferisce l'arrivo piu' presto`() {
         val opzione = OpzioneOrario(id = "o1", minutoPartenza = 2, offsetOreArrivo = 1, minutoArrivo = 30)
         val fisso = OrarioFisso(id = "f1", partenza = LocalTime.of(15, 2), arrivo = LocalTime.of(16, 17))
