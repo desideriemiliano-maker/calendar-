@@ -24,10 +24,16 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -43,12 +49,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.desideri.viaggiotemplate.domain.model.IconaLuogo
 import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.repository.RuoloLuogoInTratta
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 import com.desideri.viaggiotemplate.ui.common.imageVector
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewModelFactory.get())) {
     val luoghi by viewModel.luoghi.collectAsState()
@@ -84,30 +92,88 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
             )
         } else {
             var testoRicerca by remember { mutableStateOf("") }
-            val luoghiFiltrati = remember(luoghi, testoRicerca) {
+            var filtroIcona by remember { mutableStateOf<FiltroIconaLuogo>(FiltroIconaLuogo.Tutti) }
+            var menuFiltroEspanso by remember { mutableStateOf(false) }
+
+            val luoghiFiltrati = remember(luoghi, testoRicerca, filtroIcona) {
                 luoghi.filter { luogo ->
-                    testoRicerca.isBlank() ||
+                    (testoRicerca.isBlank() ||
                         luogo.nome.contains(testoRicerca, ignoreCase = true) ||
-                        luogo.indirizzo?.contains(testoRicerca, ignoreCase = true) == true
+                        luogo.indirizzo?.contains(testoRicerca, ignoreCase = true) == true) &&
+                        when (val filtro = filtroIcona) {
+                            FiltroIconaLuogo.Tutti -> true
+                            FiltroIconaLuogo.SenzaIcona -> luogo.icona == null
+                            is FiltroIconaLuogo.Tipo -> luogo.icona == filtro.icona
+                        }
                 }
             }
 
             Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-                OutlinedTextField(
-                    value = testoRicerca,
-                    onValueChange = { testoRicerca = it },
-                    label = { Text("Cerca") },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (testoRicerca.isNotEmpty()) {
-                            IconButton(onClick = { testoRicerca = "" }) {
-                                Icon(Icons.Filled.Close, contentDescription = "Cancella ricerca")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = testoRicerca,
+                        onValueChange = { testoRicerca = it },
+                        label = { Text("Cerca") },
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (testoRicerca.isNotEmpty()) {
+                                IconButton(onClick = { testoRicerca = "" }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Cancella ricerca")
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    ExposedDropdownMenuBox(
+                        expanded = menuFiltroEspanso,
+                        onExpandedChange = { menuFiltroEspanso = it },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            value = filtroIcona.etichetta,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Tipo") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuFiltroEspanso) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+                        )
+                        DropdownMenu(
+                            expanded = menuFiltroEspanso,
+                            onDismissRequest = { menuFiltroEspanso = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(FiltroIconaLuogo.Tutti.etichetta) },
+                                onClick = {
+                                    filtroIcona = FiltroIconaLuogo.Tutti
+                                    menuFiltroEspanso = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(FiltroIconaLuogo.SenzaIcona.etichetta) },
+                                onClick = {
+                                    filtroIcona = FiltroIconaLuogo.SenzaIcona
+                                    menuFiltroEspanso = false
+                                }
+                            )
+                            IconaLuogo.values().forEach { icona ->
+                                DropdownMenuItem(
+                                    text = { Text(icona.etichetta) },
+                                    onClick = {
+                                        filtroIcona = FiltroIconaLuogo.Tipo(icona)
+                                        menuFiltroEspanso = false
+                                    }
+                                )
                             }
                         }
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
-                )
+                    }
+                }
                 ContatoreElementi(mostrati = luoghiFiltrati.size, totale = luoghi.size)
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
@@ -187,4 +253,16 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
             confirmButton = { TextButton(onClick = viewModel::chiudiErroreEliminazione) { Text("OK") } }
         )
     }
+}
+
+/**
+ * Filtro per tipo nel menu a tendina accanto alla ricerca (stesso pattern di `filtroTipo` in
+ * `TratteScreen`). `IconaLuogo?` da solo non basterebbe: null è già il valore di un Luogo senza
+ * icona, quindi servirebbe a distinguere "nessun filtro attivo" da "filtra i luoghi senza icona"
+ * — da qui una sealed class con un caso esplicito per ciascuno.
+ */
+private sealed class FiltroIconaLuogo(val etichetta: String) {
+    data object Tutti : FiltroIconaLuogo("Tutti")
+    data object SenzaIcona : FiltroIconaLuogo("Senza icona")
+    data class Tipo(val icona: IconaLuogo) : FiltroIconaLuogo(icona.etichetta)
 }
