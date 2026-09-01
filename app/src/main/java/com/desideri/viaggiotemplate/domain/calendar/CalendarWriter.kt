@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.provider.CalendarContract
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
 import com.desideri.viaggiotemplate.domain.location.formattaCoordinateGps
+import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
+import com.desideri.viaggiotemplate.domain.log.EsitoRegistro
 import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import java.time.Instant
@@ -273,6 +275,7 @@ class CalendarWriter(private val context: Context) {
         data: LocalDate,
         eventi: List<EventoDaScrivere>
     ): RisultatoInserimentoEventi {
+        val inizioMisurazione = System.currentTimeMillis()
         val istanti = risolviIstanti(data, eventi)
         val idInseriti = eventi.zip(istanti).map { (evento, istante) ->
             inserisciEvento(calendario, istante.first, istante.second, evento)
@@ -280,6 +283,12 @@ class CalendarWriter(private val context: Context) {
         if (idInseriti.any { it != null }) {
             richiediSyncSeOpportuno(listOf(calendario.aCalendarioEvento()))
         }
+        val riusciti = idInseriti.count { it != null }
+        AttivitaLogger.integrazione(
+            descrizione = "Calendar Provider: inserimento $riusciti/${eventi.size} eventi su \"${calendario.nome}\"",
+            esito = if (riusciti == eventi.size) EsitoRegistro.SUCCESSO else EsitoRegistro.ERRORE,
+            durataMs = System.currentTimeMillis() - inizioMisurazione
+        )
         val syncDisattivata = calendario.accountType != CalendarContract.ACCOUNT_TYPE_LOCAL && !calendario.syncEventsAttivo
         return RisultatoInserimentoEventi(idInseriti, syncDisattivata)
     }
@@ -392,6 +401,7 @@ class CalendarWriter(private val context: Context) {
         if (eventIds.isEmpty()) {
             return RisultatoEliminazioneEventi(0, 0, fallbackTentato = false, cancellatiFallback = 0, idsNonCancellati = emptyList())
         }
+        val inizioMisurazione = System.currentTimeMillis()
 
         // Va risolto PRIMA della delete: una volta marcata deleted=1, una riga su un calendario
         // sincronizzato sparisce anche alle nostre query (vedi la doc della funzione), quindi non
@@ -424,6 +434,12 @@ class CalendarWriter(private val context: Context) {
         if (risultatoBase.completato) {
             richiediSyncSeOpportuno(calendariCoinvolti)
         }
+
+        AttivitaLogger.integrazione(
+            descrizione = "Calendar Provider: eliminazione ${risultatoBase.cancellatiBatch + risultatoBase.cancellatiFallback}/${eventIds.size} eventi",
+            esito = if (risultatoBase.completato) EsitoRegistro.SUCCESSO else EsitoRegistro.ERRORE,
+            durataMs = System.currentTimeMillis() - inizioMisurazione
+        )
 
         return risultatoBase.copy(
             calendariSincronizzati = calendariCoinvolti

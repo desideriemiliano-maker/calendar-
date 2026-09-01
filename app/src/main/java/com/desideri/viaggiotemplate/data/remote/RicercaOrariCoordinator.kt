@@ -1,5 +1,6 @@
 package com.desideri.viaggiotemplate.data.remote
 
+import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.desideri.viaggiotemplate.domain.model.Vettore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -93,7 +94,9 @@ object RicercaOrariCoordinator {
             val risultato = semaforo.withPermit {
                 staggerMinimo()
                 withContext(Dispatchers.IO) {
-                    client.cercaCorse(daStazione, aStazione, data, oraRiferimento, limite)
+                    AttivitaLogger.misura("$vettore: ricerca corse $daStazione -> $aStazione") {
+                        client.cercaCorse(daStazione, aStazione, data, oraRiferimento, limite)
+                    }
                 }
             }
             cache[chiave] = risultato

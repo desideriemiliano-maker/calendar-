@@ -50,6 +50,8 @@ import com.desideri.viaggiotemplate.domain.mappa.risolviPercorsoTratta
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorsoEsecuzione
 import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato
+import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
+import com.desideri.viaggiotemplate.domain.log.EsitoRegistro
 import com.desideri.viaggiotemplate.domain.model.IconaLuogo
 import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Template
@@ -181,11 +183,25 @@ private suspend fun risolviMappa(context: Context, percorso: PercorsoTemplate, l
 private suspend fun geocodificaBestEffort(geocoder: Geocoder?, indirizzo: String): Pair<Double, Double>? =
     withContext(Dispatchers.IO) {
         if (geocoder == null) return@withContext null
-        try {
+        val inizioMisurazione = System.currentTimeMillis()
+        val risultato = try {
             geocoder.getFromLocationName(indirizzo, 1)?.firstOrNull()?.let { it.latitude to it.longitude }
-        } catch (_: Exception) {
-            null
+        } catch (e: Exception) {
+            AttivitaLogger.integrazione(
+                descrizione = "Geocoding: \"$indirizzo\"",
+                esito = EsitoRegistro.ERRORE,
+                durataMs = System.currentTimeMillis() - inizioMisurazione,
+                dettaglioErrore = e.message
+            )
+            return@withContext null
         }
+        AttivitaLogger.integrazione(
+            descrizione = "Geocoding: \"$indirizzo\"",
+            esito = if (risultato != null) EsitoRegistro.SUCCESSO else EsitoRegistro.ERRORE,
+            durataMs = System.currentTimeMillis() - inizioMisurazione,
+            dettaglioErrore = if (risultato == null) "nessun risultato" else null
+        )
+        risultato
     }
 
 /** Formatta minuti in "1h 25m" / "40m" / "2h", senza mai mostrare zero implicito su una parte assente. */

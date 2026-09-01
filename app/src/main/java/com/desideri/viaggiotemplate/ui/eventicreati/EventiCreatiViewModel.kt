@@ -12,6 +12,7 @@ import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
 import com.desideri.viaggiotemplate.domain.calendar.notaSincronizzazione
 import com.desideri.viaggiotemplate.domain.calendar.passata
+import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.desideri.viaggiotemplate.repository.EsecuzioneCreataRepository
 import com.desideri.viaggiotemplate.ui.AppContainer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -142,12 +143,17 @@ class EventiCreatiViewModel(
                     }
                 }
                 repository.elimina(esecuzione.id)
+                AttivitaLogger.azioneUtente(
+                    "Eliminata esecuzione \"${esecuzione.templateNome ?: "template senza nome"}\" del ${esecuzione.dataViaggio()}" +
+                        if (eliminaAncheCalendario) " (anche dal calendario)" else ""
+                )
                 _stato.value = if (_stato.value.esecuzioneSelezionata?.id == esecuzione.id) {
                     _stato.value.copy(esecuzioneSelezionata = null, eventiSelezionati = emptyList(), eventIdsSalvati = emptyList(), posizioni = emptyList(), notaEliminazione = nota)
                 } else {
                     _stato.value.copy(notaEliminazione = nota)
                 }
             } catch (e: Exception) {
+                AttivitaLogger.errore("Eliminazione esecuzione fallita", e.message)
                 _stato.value = _stato.value.copy(messaggio = "Errore nell'eliminazione: ${e.message}")
             }
         }

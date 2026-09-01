@@ -4,6 +4,7 @@ import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
@@ -56,6 +57,7 @@ import com.desideri.viaggiotemplate.ui.impostazioni.DialogVersioni
 import com.desideri.viaggiotemplate.ui.impostazioni.ImpostazioniViewModel
 import com.desideri.viaggiotemplate.ui.impostazioni.ImpostazioniViewModelFactory
 import com.desideri.viaggiotemplate.ui.luoghi.LuoghiScreen
+import com.desideri.viaggiotemplate.ui.registro.RegistroAttivitaScreen
 import com.desideri.viaggiotemplate.ui.template.TemplateScreen
 import com.desideri.viaggiotemplate.ui.tratte.TratteScreen
 
@@ -80,6 +82,7 @@ fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
 
     var menuEspanso by remember { mutableStateOf(false) }
     var mostraCalendario by remember { mutableStateOf(false) }
+    var mostraRegistroAttivita by remember { mutableStateOf(false) }
     var mostraVersioni by remember { mutableStateOf(false) }
     var mostraConfermaUscita by remember { mutableStateOf(false) }
 
@@ -144,6 +147,11 @@ fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
                         )
                         HorizontalDivider()
                         DropdownMenuItem(
+                            text = { Text("Registro attività") },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Article, contentDescription = null) },
+                            onClick = { menuEspanso = false; mostraRegistroAttivita = true }
+                        )
+                        DropdownMenuItem(
                             text = { Text("Versioni") },
                             leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
                             onClick = { menuEspanso = false; mostraVersioni = true }
@@ -190,6 +198,9 @@ fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
 
     if (mostraCalendario) {
         DialogCalendario(viewModel = impostazioniViewModel, onDismiss = { mostraCalendario = false })
+    }
+    if (mostraRegistroAttivita) {
+        RegistroAttivitaScreen(onChiudi = { mostraRegistroAttivita = false })
     }
     if (mostraVersioni) {
         DialogVersioni(onDismiss = { mostraVersioni = false })

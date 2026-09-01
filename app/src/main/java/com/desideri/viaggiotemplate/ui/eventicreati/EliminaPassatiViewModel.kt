@@ -8,6 +8,7 @@ import com.desideri.viaggiotemplate.domain.calendar.CalendarWriter
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
 import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.domain.calendar.passata
+import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.desideri.viaggiotemplate.repository.EsecuzioneCreataRepository
 import com.desideri.viaggiotemplate.ui.AppContainer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -89,12 +90,17 @@ class EliminaPassatiViewModel(private val repository: EsecuzioneCreataRepository
                     repository.elimina(esecuzione.id)
                     eliminateConSuccesso++
                 }
+                AttivitaLogger.azioneUtente(
+                    "Eliminazione in blocco eventi passati: $eliminateConSuccesso/${passate.size} esecuzioni eliminate" +
+                        if (nonCompletate.isNotEmpty()) " (${nonCompletate.size} non completate)" else ""
+                )
                 _stato.value = if (nonCompletate.isEmpty()) {
                     StatoEliminaPassati.Completato(eliminateConSuccesso, esitiSuccesso)
                 } else {
                     StatoEliminaPassati.ErroreParziale(eliminateConSuccesso, nonCompletate)
                 }
             } catch (e: Exception) {
+                AttivitaLogger.errore("Eliminazione in blocco eventi passati fallita", e.message)
                 _stato.value = StatoEliminaPassati.Errore(
                     "Errore durante l'eliminazione: ${e.message}. Eliminate finora: $eliminateConSuccesso su ${passate.size}."
                 )

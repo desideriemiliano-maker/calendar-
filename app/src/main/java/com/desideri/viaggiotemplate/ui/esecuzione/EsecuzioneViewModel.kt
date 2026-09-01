@@ -16,6 +16,7 @@ import com.desideri.viaggiotemplate.domain.calendar.CalendarioDisponibile
 import com.desideri.viaggiotemplate.domain.calendar.EventoDaScrivere
 import com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.congela
+import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
@@ -529,12 +530,16 @@ class EsecuzioneViewModel(
             val notaSync = if (risultatoInserimento.calendarioSyncDisattivata) {
                 " Sincronizzazione disattivata per ${calendario.nome}: resteranno visibili solo su questo dispositivo finché non la riattivi."
             } else ""
+            val nomeTemplate = s.templateSelezionato?.nome ?: "template senza nome"
             _stato.value = if (eventiConId.size == s.eventiCalcolati.size) {
+                AttivitaLogger.azioneUtente("Creati ${eventiConId.size} eventi calendario per \"$nomeTemplate\" del ${s.data}")
                 s.copy(messaggio = "${eventiConId.size} eventi aggiunti al calendario ✓$notaSync")
             } else {
+                AttivitaLogger.azioneUtente("Creati solo ${eventiConId.size}/${s.eventiCalcolati.size} eventi calendario per \"$nomeTemplate\" del ${s.data}")
                 s.copy(messaggio = "Aggiunti solo ${eventiConId.size} su ${s.eventiCalcolati.size} eventi: controlla il calendario scelto$notaSync")
             }
         } catch (e: Exception) {
+            AttivitaLogger.errore("Creazione eventi calendario fallita", e.message)
             _stato.value = s.copy(messaggio = "Errore nella scrittura sul calendario: ${e.message}")
         }
     }

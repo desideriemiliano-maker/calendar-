@@ -1,6 +1,7 @@
 package com.desideri.viaggiotemplate.ui
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import com.desideri.viaggiotemplate.data.local.AppDatabase
 import com.desideri.viaggiotemplate.data.local.ImpostazioniStore
@@ -23,6 +24,7 @@ import com.desideri.viaggiotemplate.data.local.MIGRATION_15_16
 import com.desideri.viaggiotemplate.data.local.MIGRATION_16_17
 import com.desideri.viaggiotemplate.data.local.NOME_FILE_DATABASE
 import com.desideri.viaggiotemplate.domain.backup.DatabaseBackupManager
+import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.desideri.viaggiotemplate.repository.EsecuzioneCreataRepository
 import com.desideri.viaggiotemplate.repository.LuogoRepository
 import com.desideri.viaggiotemplate.repository.TemplateRepository
@@ -63,8 +65,14 @@ object AppContainer {
         databaseBackupManager = DatabaseBackupManager(context.applicationContext)
     }
 
-    private fun costruisciDatabase(context: Context): AppDatabase =
-        Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, NOME_FILE_DATABASE)
+    private fun costruisciDatabase(context: Context): AppDatabase {
+        // Letto PRIMA che Room apra il file: se il .db esiste già ma a uno schema precedente,
+        // è la versione da cui si migrerà. Un solo punto di log invece di uno per ciascuna delle
+        // Migration sopra (che altrimenti andrebbero toccate una per una, rischioso su codice
+        // stabile per un beneficio pressoché nullo: su un device già aggiornato non rieseguono più).
+        val versionePrimaDellApertura = versioneSchemaEsistente(context)
+
+        val database = Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, NOME_FILE_DATABASE)
             // Migrazioni esplicite: preservano i dati dell'utente ad ogni cambio di schema.
             .addMigrations(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
@@ -72,6 +80,26 @@ object AppContainer {
                 MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17
             )
             .build()
+
+        // Forza l'apertura (Room la farebbe comunque al primo accesso a un DAO, tra pochissimo):
+        // così la migrazione, se necessaria, è già avvenuta quando si logga qui sotto.
+        val versioneDopoLApertura = database.openHelper.readableDatabase.version
+        if (versionePrimaDellApertura != null && versionePrimaDellApertura != versioneDopoLApertura) {
+            AttivitaLogger.azioneUtente("Migrazione schema database: v$versionePrimaDellApertura -> v$versioneDopoLApertura")
+        }
+
+        return database
+    }
+
+    private fun versioneSchemaEsistente(context: Context): Int? {
+        val file = percorsoFileDatabase(context)
+        if (!file.exists()) return null
+        return try {
+            SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY).use { it.version }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     /** Percorso del file .db sul filesystem del device, per il backup/ripristino su Google Drive. */
     fun percorsoFileDatabase(context: Context): File = context.getDatabasePath(NOME_FILE_DATABASE)

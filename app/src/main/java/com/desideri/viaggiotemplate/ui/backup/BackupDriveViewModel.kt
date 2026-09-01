@@ -12,6 +12,7 @@ import com.desideri.viaggiotemplate.domain.backup.DatabaseBackupManager
 import com.desideri.viaggiotemplate.domain.backup.GoogleDriveAutorizzatore
 import com.desideri.viaggiotemplate.domain.backup.NOME_FILE_BACKUP_DRIVE
 import com.desideri.viaggiotemplate.domain.backup.RisultatoAutorizzazioneDrive
+import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.desideri.viaggiotemplate.ui.AppContainer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,15 +75,21 @@ class BackupDriveViewModel(
         val backup = backupPerRipristino ?: return
         val accessToken = accessTokenPerRipristino ?: return
         _stato.value = StatoBackupDrive.Elaborazione
+        // Loggato PRIMA del download: in caso di successo il processo viene riavviato subito dopo
+        // (vedi sotto), quindi un log "completato" dopo validaEApplicaBackup non verrebbe mai scritto.
+        AttivitaLogger.azioneUtente("Ripristino da Drive avviato (backup del ${backup.modifiedTimeIso})")
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    val bytes = driveClient.scarica(accessToken, backup.id)
+                    val bytes = AttivitaLogger.misura("Google Drive: download backup") {
+                        driveClient.scarica(accessToken, backup.id)
+                    }
                     // In caso di successo l'app viene riavviata da qui dentro (vedi
                     // DatabaseBackupManager.riavviaApp): questa coroutine non riprende mai oltre questa riga.
                     databaseBackupManager.validaEApplicaBackup(bytes)
                 }
             } catch (e: BackupDriveException) {
+                AttivitaLogger.errore("Ripristino da Drive fallito", e.message)
                 _stato.value = StatoBackupDrive.Errore(e.message ?: "Errore durante il ripristino.")
             }
         }
@@ -133,19 +140,29 @@ class BackupDriveViewModel(
         try {
             val dimensioneByte = withContext(Dispatchers.IO) {
                 val bytes = databaseBackupManager.leggiBytesDatabasePerBackup()
-                val esistente = driveClient.trovaBackup(accessToken, NOME_FILE_BACKUP_DRIVE)
-                driveClient.carica(accessToken, esistente?.id, NOME_FILE_BACKUP_DRIVE, bytes)
+                val esistente = AttivitaLogger.misura("Google Drive: ricerca backup esistente") {
+                    driveClient.trovaBackup(accessToken, NOME_FILE_BACKUP_DRIVE)
+                }
+                AttivitaLogger.misura("Google Drive: caricamento backup (${bytes.size} byte)") {
+                    driveClient.carica(accessToken, esistente?.id, NOME_FILE_BACKUP_DRIVE, bytes)
+                }
                 bytes.size.toLong()
             }
+            AttivitaLogger.azioneUtente("Backup su Drive completato ($dimensioneByte byte)")
             _stato.value = StatoBackupDrive.BackupCompletato(dimensioneByte)
         } catch (e: BackupDriveException) {
+            AttivitaLogger.errore("Backup su Drive fallito", e.message)
             _stato.value = StatoBackupDrive.Errore(e.message ?: "Errore durante il backup.")
         }
     }
 
     private suspend fun cercaBackupPerRipristino(accessToken: String) {
         try {
-            val backup = withContext(Dispatchers.IO) { driveClient.trovaBackup(accessToken, NOME_FILE_BACKUP_DRIVE) }
+            val backup = withContext(Dispatchers.IO) {
+                AttivitaLogger.misura("Google Drive: ricerca backup per ripristino") {
+                    driveClient.trovaBackup(accessToken, NOME_FILE_BACKUP_DRIVE)
+                }
+            }
             if (backup == null) {
                 _stato.value = StatoBackupDrive.NessunBackupTrovato
             } else {
@@ -154,6 +171,7 @@ class BackupDriveViewModel(
                 _stato.value = StatoBackupDrive.ConfermaRipristino(backup)
             }
         } catch (e: BackupDriveException) {
+            AttivitaLogger.errore("Ricerca backup su Drive fallita", e.message)
             _stato.value = StatoBackupDrive.Errore(e.message ?: "Errore durante la ricerca del backup.")
         }
     }

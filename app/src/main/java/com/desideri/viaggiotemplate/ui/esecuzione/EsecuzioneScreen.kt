@@ -58,6 +58,7 @@ import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
 import com.desideri.viaggiotemplate.data.remote.clientOrariPer
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
 import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
+import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
@@ -779,13 +780,15 @@ private fun CardEvento(
                         scope.launch {
                             try {
                                 val corse = withContext(Dispatchers.IO) {
-                                    client.cercaCorse(
-                                        daStazione = evento.tratta.luogoPartenza,
-                                        aStazione = evento.tratta.luogoArrivo,
-                                        data = data,
-                                        oraRiferimento = evento.inizioReale.minusHours(3),
-                                        limite = 16
-                                    )
+                                    AttivitaLogger.misura("$vettoreConOrariReali: ricerca corse ${evento.tratta.luogoPartenza} -> ${evento.tratta.luogoArrivo}") {
+                                        client.cercaCorse(
+                                            daStazione = evento.tratta.luogoPartenza,
+                                            aStazione = evento.tratta.luogoArrivo,
+                                            data = data,
+                                            oraRiferimento = evento.inizioReale.minusHours(3),
+                                            limite = 16
+                                        )
+                                    }
                                 }
                                 if (corse.isEmpty()) {
                                     erroreOrarioReale = "Nessuna corsa trovata per questa data."

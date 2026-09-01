@@ -145,6 +145,9 @@ dependencies {
 
     // Test (unit, JVM puro - non richiedono emulatore)
     testImplementation("junit:junit:4.13.2")
+    // org.json reale: nei test JVM puri lo stub di android.jar lancia "not mocked" su ogni
+    // metodo che scrive (put/...), vedi AttivitaLogger che lo usa per (de)serializzare il registro.
+    testImplementation("org.json:json:20240303")
 }
 
 // Aggira il bug "Cannot obtain the package" della run configuration "Android App" di IntelliJ:
