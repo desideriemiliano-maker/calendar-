@@ -2,6 +2,7 @@ package com.desideri.viaggiotemplate.ui.navigation
 
 import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
@@ -36,6 +37,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -70,6 +73,9 @@ private sealed class Sezione(val route: String, val titolo: String) {
 }
 
 private val sezioni = listOf(Sezione.EventiCreati, Sezione.Luoghi, Sezione.Tratte, Sezione.Template, Sezione.Esecuzione)
+
+/** Frazione della larghezza dello schermo che uno swipe orizzontale deve superare per cambiare sezione: abbastanza da non scattare per un tocco impreciso o l'avvio di uno scroll verticale, non così tanta da sembrare poco reattivo. */
+private const val SOGLIA_SWIPE_FRAZIONE_LARGHEZZA = 0.20f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -183,10 +189,53 @@ fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
             }
         }
     ) { padding ->
+        val indiceSezioneCorrente = sezioni.indexOfFirst { sezione ->
+            currentDestination?.hierarchy?.any { it.route == sezione.route } == true
+        }
         NavHost(
             navController = navController,
             startDestination = Sezione.EventiCreati.route,
-            modifier = androidx.compose.ui.Modifier.padding(padding)
+            modifier = Modifier
+                .padding(padding)
+                // Cambia sezione con uno swipe orizzontale, nello stesso ordine della barra in
+                // basso e sincronizzato con essa in entrambe le direzioni (richiama la stessa
+                // navigaASezione dei tap sulla barra). Ri-chiavato su indiceSezioneCorrente: la
+                // chiusura cattura altrimenti l'indice di quando il gesto è partito, non quello
+                // corrente dopo un'eventuale navigazione nel frattempo.
+                //
+                // detectHorizontalDragGestures (passata Main, non Initial come invece fa
+                // ZoomableRoot per il pinch) consuma solo dopo aver superato la soglia di
+                // scorrimento ORIZZONTALE: una LazyRow o un componente scorrevole annidati (liste
+                // orizzontali in un editor, la mappa OSMDroid embeddata via AndroidView) vedono
+                // l'evento prima, nella stessa Main pass, e se lo consumano per un proprio
+                // scroll/pan quello che arriva qui risulta già `isConsumed` — questo detector si
+                // ferma da solo, non serve escludere esplicitamente nessuna schermata. Un drag
+                // prevalentemente verticale (scroll di una lista) viene già risolto a monte dalla
+                // stessa logica di rilevamento della soglia, orientation-aware in Compose.
+                .pointerInput(indiceSezioneCorrente) {
+                    var trascinamentoOrizzontale = 0f
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (indiceSezioneCorrente >= 0) {
+                                val sogliaMinima = size.width * SOGLIA_SWIPE_FRAZIONE_LARGHEZZA
+                                val direzione = when {
+                                    trascinamentoOrizzontale <= -sogliaMinima -> 1
+                                    trascinamentoOrizzontale >= sogliaMinima -> -1
+                                    else -> 0
+                                }
+                                val nuovoIndice = (indiceSezioneCorrente + direzione).coerceIn(0, sezioni.lastIndex)
+                                if (direzione != 0 && nuovoIndice != indiceSezioneCorrente) {
+                                    navigaASezione(sezioni[nuovoIndice])
+                                }
+                            }
+                            trascinamentoOrizzontale = 0f
+                        },
+                        onDragCancel = { trascinamentoOrizzontale = 0f }
+                    ) { change, dragAmount ->
+                        trascinamentoOrizzontale += dragAmount
+                        change.consume()
+                    }
+                }
         ) {
             composable(Sezione.Tratte.route) { TratteScreen() }
             composable(Sezione.Luoghi.route) { LuoghiScreen() }
