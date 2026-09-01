@@ -159,12 +159,18 @@ class CalendarWriter(private val context: Context) {
         return eventoId
     }
 
-    /** Inserisce tutti gli eventi calcolati di un template in un'unica chiamata. */
+    /**
+     * Inserisce tutti gli eventi calcolati di un template in un'unica chiamata. Ritorna una lista
+     * della STESSA lunghezza e nello STESSO ordine di [eventi] (null dove l'inserimento è
+     * fallito), non solo gli ID riusciti: il chiamante deve poter correlare ogni ID al suo evento
+     * di origine — es. per congelarne la posizione (vedi [com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato])
+     * — cosa impossibile con una lista compattata che perde gli indici falliti.
+     */
     fun inserisciEventi(
         calendario: CalendarioDisponibile,
         data: LocalDate,
         eventi: List<EventoDaScrivere>
-    ): List<Long> = eventi.mapNotNull { inserisciEvento(calendario, data, it) }
+    ): List<Long?> = eventi.map { inserisciEvento(calendario, data, it) }
 
     /**
      * EVENT_LOCATION per [tratta]: le coordinate GPS del Luogo di arrivo, quando impostate, hanno

@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -74,6 +75,7 @@ import com.desideri.viaggiotemplate.domain.calendar.avviaNavigazioneAuto
 import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogSelettoreData
+import com.desideri.viaggiotemplate.ui.mappa.EsecuzioneMappaScreen
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
@@ -154,23 +156,37 @@ fun EventiCreatiScreen() {
         permessoConcesso = risultati.values.all { it }
     }
 
-    BackHandler(enabled = stato.esecuzioneSelezionata != null) { viewModel.tornaAiRisultati() }
+    var mostraMappa by remember { mutableStateOf(false) }
+    BackHandler(enabled = mostraMappa) { mostraMappa = false }
+    BackHandler(enabled = stato.esecuzioneSelezionata != null && !mostraMappa) { viewModel.tornaAiRisultati() }
 
     Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-            if (!permessoConcesso) {
-                Text(
-                    "Serve l'accesso al calendario per rileggere ed eliminare gli eventi creati dall'app.",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-                Button(onClick = { richiediPermesso.launch(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)) }) {
-                    Text("Consenti accesso al calendario")
+        if (permessoConcesso && mostraMappa && stato.esecuzioneSelezionata != null) {
+            // Fuori dalla Column con padding extra sotto, così riceve lo stesso spazio "grezzo" di
+            // Scaffold usato dalle altre viste mappa (TemplateMappaScreen/TrattaMappaScreen).
+            EsecuzioneMappaScreen(
+                titolo = "Mappa" + (stato.esecuzioneSelezionata?.templateNome?.let { " ($it)" } ?: ""),
+                eventiOrdinati = stato.eventiSelezionati,
+                posizioni = stato.posizioni,
+                onChiudi = { mostraMappa = false },
+                padding = padding
+            )
+        } else {
+            Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+                if (!permessoConcesso) {
+                    Text(
+                        "Serve l'accesso al calendario per rileggere ed eliminare gli eventi creati dall'app.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    Button(onClick = { richiediPermesso.launch(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)) }) {
+                        Text("Consenti accesso al calendario")
+                    }
+                } else if (stato.esecuzioneSelezionata == null) {
+                    PannelloRicerca(stato = stato, viewModel = viewModel, context = context)
+                } else {
+                    PannelloDettaglio(stato = stato, viewModel = viewModel, context = context, onMostraMappa = { mostraMappa = true })
                 }
-            } else if (stato.esecuzioneSelezionata == null) {
-                PannelloRicerca(stato = stato, viewModel = viewModel, context = context)
-            } else {
-                PannelloDettaglio(stato = stato, viewModel = viewModel, context = context)
             }
         }
     }
@@ -394,7 +410,7 @@ private fun DialogErroreEliminazioneCalendario(errore: RisultatoEliminazioneEven
 }
 
 @Composable
-private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: EventiCreatiViewModel, context: Context) {
+private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: EventiCreatiViewModel, context: Context, onMostraMappa: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { viewModel.tornaAiRisultati() }) {
             Icon(Icons.Filled.ArrowBack, contentDescription = "Torna ai risultati")
@@ -402,8 +418,12 @@ private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: E
         Text(
             "Eventi del ${stato.esecuzioneSelezionata?.inizioPrimoEvento?.atZone(ZoneId.systemDefault())?.format(FORMATO_DATA_ORA).orEmpty()}" +
                 (stato.esecuzioneSelezionata?.templateNome?.let { " ($it)" } ?: ""),
-            style = MaterialTheme.typography.titleMedium
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f)
         )
+        IconButton(onClick = onMostraMappa, enabled = !stato.caricamentoEventi) {
+            Icon(Icons.Filled.Map, contentDescription = "Visualizza mappa")
+        }
     }
 
     when {

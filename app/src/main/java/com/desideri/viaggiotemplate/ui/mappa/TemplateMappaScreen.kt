@@ -47,6 +47,9 @@ import com.desideri.viaggiotemplate.R
 import com.desideri.viaggiotemplate.domain.mappa.PercorsoTemplate
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorso
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorsoTratta
+import com.desideri.viaggiotemplate.domain.mappa.risolviPercorsoEsecuzione
+import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
+import com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato
 import com.desideri.viaggiotemplate.domain.model.IconaLuogo
 import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Template
@@ -244,13 +247,55 @@ fun TrattaMappaScreen(
     )
 }
 
+/**
+ * Vista mappa per un'esecuzione già scritta a calendario ("Eventi creati"): stessa vista di
+ * [TemplateMappaScreen], ma il percorso arriva da [risolviPercorsoEsecuzione] — posizioni
+ * congelate al momento della scrittura, mai dai Luoghi/Tratte live (vedi lì il perché) — con
+ * durate e attese calcolate sugli orari REALI degli eventi invece che stimate.
+ *
+ * [eventiOrdinati] devono essere ordinati per orario di inizio reale, come già li restituisce
+ * [com.desideri.viaggiotemplate.domain.calendar.CalendarWriter.eventiPerId].
+ */
+@Composable
+fun EsecuzioneMappaScreen(
+    titolo: String,
+    eventiOrdinati: List<EventoCreato>,
+    posizioni: List<PosizioneEventoCreato>,
+    onChiudi: () -> Unit,
+    padding: PaddingValues
+) {
+    val (percorso, luoghi) = remember(eventiOrdinati, posizioni) { risolviPercorsoEsecuzione(eventiOrdinati, posizioni) }
+    MappaPercorsoScreen(
+        titolo = titolo,
+        percorso = percorso,
+        luoghi = luoghi,
+        onChiudi = onChiudi,
+        padding = padding,
+        messaggioNessunaTappa = "Nessuna posizione disponibile per questi eventi: probabilmente sono stati creati con " +
+            "una versione dell'app precedente all'introduzione di questa mappa, oppure i luoghi usati non avevano " +
+            "indirizzo né coordinate GPS al momento della creazione.",
+        notaInformativa = "Le posizioni mostrate sono quelle salvate al momento della creazione: modifiche successive " +
+            "a Luoghi o Tratte non le cambiano. Gli eventi creati prima dell'introduzione di questa mappa potrebbero " +
+            "non avere alcuna posizione disponibile."
+    )
+}
+
+/** Testo di [MessaggioNessunaTappa] quando il percorso viene da un Template/Tratta della libreria (luoghi live, sempre correggibili in Luoghi). */
+private const val MESSAGGIO_NESSUNA_TAPPA_LIBRERIA =
+    "Nessun luogo di questo template ha coordinate GPS, e nessun indirizzo è risultato " +
+        "geolocalizzabile automaticamente su questo dispositivo.\n\n" +
+        "Aggiungi coordinate o un indirizzo ai luoghi usati da questo template (schermata " +
+        "Luoghi) per poterli vedere qui."
+
 @Composable
 private fun MappaPercorsoScreen(
     titolo: String,
     percorso: PercorsoTemplate,
     luoghi: List<Luogo>,
     onChiudi: () -> Unit,
-    padding: PaddingValues
+    padding: PaddingValues,
+    messaggioNessunaTappa: String = MESSAGGIO_NESSUNA_TAPPA_LIBRERIA,
+    notaInformativa: String? = null
 ) {
     val context = LocalContext.current
     var risoluzione by remember { mutableStateOf<RisoluzioneMappa?>(null) }
@@ -272,10 +317,11 @@ private fun MappaPercorsoScreen(
             esito == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            esito.tappe.isEmpty() -> MessaggioNessunaTappa()
+            esito.tappe.isEmpty() -> MessaggioNessunaTappa(messaggioNessunaTappa)
             else -> {
+                notaInformativa?.let { BannerMappa(it) }
                 if (esito.senzaDati > 0 || esito.geocodingFallito > 0) {
-                    BannerTappeEscluse(esito.senzaDati, esito.geocodingFallito)
+                    BannerMappa("Tappe non mostrate: " + descriviTappeEscluse(esito.senzaDati, esito.geocodingFallito) + ".")
                 }
                 MappaOsm(esito = esito, modifier = Modifier.fillMaxWidth().weight(1f))
             }
@@ -284,28 +330,22 @@ private fun MappaPercorsoScreen(
 }
 
 @Composable
-private fun MessaggioNessunaTappa() {
+private fun MessaggioNessunaTappa(messaggio: String) {
     Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-        Text(
-            "Nessun luogo di questo template ha coordinate GPS, e nessun indirizzo è risultato " +
-                "geolocalizzabile automaticamente su questo dispositivo.\n\n" +
-                "Aggiungi coordinate o un indirizzo ai luoghi usati da questo template (schermata " +
-                "Luoghi) per poterli vedere qui.",
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyMedium
-        )
+        Text(messaggio, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
+private fun descriviTappeEscluse(senzaDati: Int, geocodingFallito: Int): String = buildList {
+    if (senzaDati > 0) add("$senzaDati senza indirizzo né coordinate")
+    if (geocodingFallito > 0) add("$geocodingFallito con indirizzo non geolocalizzabile su questo dispositivo")
+}.joinToString(", ")
+
 @Composable
-private fun BannerTappeEscluse(senzaDati: Int, geocodingFallito: Int) {
-    val motivi = buildList {
-        if (senzaDati > 0) add("$senzaDati senza indirizzo né coordinate")
-        if (geocodingFallito > 0) add("$geocodingFallito con indirizzo non geolocalizzabile su questo dispositivo")
-    }
+private fun BannerMappa(testo: String) {
     Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
         Text(
-            "Tappe non mostrate: " + motivi.joinToString(", ") + ".",
+            testo,
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )

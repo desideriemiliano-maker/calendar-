@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.desideri.viaggiotemplate.domain.calendar.CalendarWriter
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
 import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
+import com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
 import com.desideri.viaggiotemplate.domain.calendar.passata
@@ -26,6 +27,8 @@ data class StatoEventiCreati(
     val esecuzioneSelezionata: EsecuzioneCreata? = null,
     val eventiSelezionati: List<EventoCreato> = emptyList(),
     val eventIdsSalvati: List<Long> = emptyList(),
+    /** Posizioni congelate degli eventi selezionati (vedi PosizioneEventoCreato), per la vista mappa. */
+    val posizioni: List<PosizioneEventoCreato> = emptyList(),
     val caricamentoEventi: Boolean = false,
     val messaggio: String? = null,
     /** Valorizzato quando l'eliminazione dal calendario non ha rimosso tutti gli eventi richiesti: la registrazione locale NON viene toccata in quel caso, per permettere di riprovare. */
@@ -78,6 +81,7 @@ class EventiCreatiViewModel(
             esecuzioneSelezionata = esecuzione,
             eventiSelezionati = emptyList(),
             eventIdsSalvati = emptyList(),
+            posizioni = emptyList(),
             caricamentoEventi = true,
             messaggio = null
         )
@@ -85,7 +89,13 @@ class EventiCreatiViewModel(
             try {
                 val eventIds = repository.eventIdsPer(esecuzione.id)
                 val eventi = CalendarWriter(context).eventiPerId(eventIds)
-                _stato.value = _stato.value.copy(eventiSelezionati = eventi, eventIdsSalvati = eventIds, caricamentoEventi = false)
+                val posizioni = repository.posizioniPer(esecuzione.id)
+                _stato.value = _stato.value.copy(
+                    eventiSelezionati = eventi,
+                    eventIdsSalvati = eventIds,
+                    posizioni = posizioni,
+                    caricamentoEventi = false
+                )
             } catch (e: Exception) {
                 _stato.value = _stato.value.copy(
                     caricamentoEventi = false,
@@ -96,7 +106,7 @@ class EventiCreatiViewModel(
     }
 
     fun tornaAiRisultati() {
-        _stato.value = _stato.value.copy(esecuzioneSelezionata = null, eventiSelezionati = emptyList(), eventIdsSalvati = emptyList())
+        _stato.value = _stato.value.copy(esecuzioneSelezionata = null, eventiSelezionati = emptyList(), eventIdsSalvati = emptyList(), posizioni = emptyList())
     }
 
     /**
@@ -122,7 +132,7 @@ class EventiCreatiViewModel(
                 }
                 repository.elimina(esecuzione.id)
                 if (_stato.value.esecuzioneSelezionata?.id == esecuzione.id) {
-                    _stato.value = _stato.value.copy(esecuzioneSelezionata = null, eventiSelezionati = emptyList(), eventIdsSalvati = emptyList())
+                    _stato.value = _stato.value.copy(esecuzioneSelezionata = null, eventiSelezionati = emptyList(), eventIdsSalvati = emptyList(), posizioni = emptyList())
                 }
             } catch (e: Exception) {
                 _stato.value = _stato.value.copy(messaggio = "Errore nell'eliminazione: ${e.message}")

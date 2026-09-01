@@ -25,7 +25,7 @@ import java.util.UUID
 const val NOME_FILE_DATABASE = "viaggio-template.db"
 
 /** Versione corrente dello schema (== `PRAGMA user_version` scritto da Room): riusata dal ripristino di un backup Drive per verificare, prima di sostituire il database live, che il file scaricato sia dello schema atteso. */
-const val VERSIONE_SCHEMA_DATABASE = 16
+const val VERSIONE_SCHEMA_DATABASE = 17
 
 @Database(
     entities = [
@@ -358,5 +358,32 @@ val MIGRATION_14_15: Migration = object : Migration(14, 15) {
 val MIGRATION_15_16: Migration = object : Migration(15, 16) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE luogo ADD COLUMN icona TEXT")
+    }
+}
+
+/**
+ * Aggiunge la posizione congelata (partenza/arrivo + tipo tratta) a `evento_creato_calendario`,
+ * per la vista mappa di "Eventi creati" (vedi
+ * [com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato]): tutte nullable, tutte
+ * null per le righe esistenti — quegli eventi restano semplicemente senza posizione mostrabile,
+ * non c'è alcun dato pregresso da cui derivarle.
+ */
+val MIGRATION_16_17: Migration = object : Migration(16, 17) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN tipoTratta TEXT")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN partenzaLuogoId TEXT")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN partenzaNome TEXT")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN partenzaIndirizzo TEXT")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN partenzaLatitudine REAL")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN partenzaLongitudine REAL")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN partenzaColore INTEGER")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN partenzaIcona TEXT")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN arrivoLuogoId TEXT")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN arrivoNome TEXT")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN arrivoIndirizzo TEXT")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN arrivoLatitudine REAL")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN arrivoLongitudine REAL")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN arrivoColore INTEGER")
+        db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN arrivoIcona TEXT")
     }
 }

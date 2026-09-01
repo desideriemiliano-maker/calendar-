@@ -1,11 +1,16 @@
 package com.desideri.viaggiotemplate.domain.mappa
 
+import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
+import com.desideri.viaggiotemplate.domain.calendar.LuogoCongelato
+import com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato
+import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.OpzioneOrario
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
+import java.time.temporal.ChronoUnit
 
 /**
  * Un nodo (luogo) del percorso di un template sulla mappa.
@@ -157,4 +162,85 @@ fun risolviPercorsoTratta(tratta: Tratta): PercorsoTemplate {
     )
     val templateSintetico = Template(id = tratta.id, nome = tratta.nome, slots = listOf(slotSintetico))
     return risolviPercorso(templateSintetico, listOf(tratta))
+}
+
+/** Un evento con la sua posizione congelata già "spacchettata" (partenza/arrivo garantiti non null), pronto per entrare nella sequenza del percorso. */
+private data class TappaEsecuzione(val evento: EventoCreato, val tipo: TipoTratta?, val partenza: LuogoCongelato, val arrivo: LuogoCongelato)
+
+/**
+ * Risolve il percorso geografico di un'esecuzione già scritta a calendario, dalle posizioni
+ * congelate al momento della scrittura (vedi [PosizioneEventoCreato]) — mai dai Luoghi/Tratte
+ * live, che potrebbero essere cambiati o eliminati da allora: stessa logica di
+ * [risolviPercorso] (nodi/archi, collasso delle tappe coincidenti, "salti" quando due tappe
+ * consecutive non coincidono), ma qui durata di ogni arco e attesa su ogni nodo sono quelle REALI
+ * tra gli orari effettivi degli eventi (rilette dal Calendar Provider, vedi [EventoCreato]) invece
+ * che una stima sui pattern configurati: l'esecuzione è già concreta, quindi il dato reale è
+ * sempre disponibile ed è più accurato di qualunque stima.
+ *
+ * [eventiOrdinati] deve essere ordinato per orario di inizio reale (come già fa
+ * [com.desideri.viaggiotemplate.domain.calendar.CalendarWriter.eventiPerId]). Un evento la cui
+ * posizione non è in [posizioni], o la cui posizione non è stata congelata (creato prima
+ * dell'introduzione di questa funzionalità), viene saltato silenziosamente — esattamente come un
+ * nodo intermedio senza dati geografici in [risolviMappa] — e produce un "salto" nel percorso
+ * anziché un arco spiegato.
+ *
+ * Ritorna, insieme al percorso, l'elenco dei Luoghi (sintetici, ricostruiti dalle posizioni
+ * congelate) su cui risolverlo: la stessa forma richiesta da [risolviMappa], per riusarlo
+ * invariato.
+ */
+fun risolviPercorsoEsecuzione(eventiOrdinati: List<EventoCreato>, posizioni: List<PosizioneEventoCreato>): Pair<PercorsoTemplate, List<Luogo>> {
+    val posizioniPerId = posizioni.associateBy { it.calendarEventId }
+    val sequenza = eventiOrdinati.mapNotNull { evento ->
+        val posizione = posizioniPerId[evento.eventoId] ?: return@mapNotNull null
+        val partenza = posizione.partenza ?: return@mapNotNull null
+        val arrivo = posizione.arrivo ?: return@mapNotNull null
+        TappaEsecuzione(evento, posizione.tipoTratta, partenza, arrivo)
+    }
+    if (sequenza.isEmpty()) return PercorsoTemplate(emptyList(), emptyList()) to emptyList()
+
+    val luoghi = LinkedHashMap<String, Luogo>()
+    fun registra(luogo: LuogoCongelato) = luoghi.getOrPut(luogo.luogoId) {
+        Luogo(
+            id = luogo.luogoId,
+            nome = luogo.nome,
+            indirizzo = luogo.indirizzo,
+            latitudine = luogo.latitudine,
+            longitudine = luogo.longitudine,
+            colore = luogo.colore,
+            icona = luogo.icona
+        )
+    }
+
+    val nodi = mutableListOf(sequenza.first().partenza.luogoId)
+    registra(sequenza.first().partenza)
+    val archi = mutableListOf<ArcoPercorso>()
+    // Allineato indice per indice con `archi`: l'evento reale di quell'arco, null per un salto — serve a calcolare l'attesa reale sui nodi sotto.
+    val eventiArco = mutableListOf<EventoCreato?>()
+
+    sequenza.forEach { tappa ->
+        registra(tappa.partenza)
+        registra(tappa.arrivo)
+        if (nodi.last() != tappa.partenza.luogoId) {
+            archi += ArcoPercorso(trattaId = null, durataMinuti = null)
+            eventiArco += null
+            nodi += tappa.partenza.luogoId
+        }
+        if (tappa.arrivo.luogoId != tappa.partenza.luogoId) {
+            val durataMinuti = ChronoUnit.MINUTES.between(tappa.evento.inizio, tappa.evento.fine).toInt()
+            archi += ArcoPercorso(trattaId = tappa.evento.eventoId.toString(), durataMinuti = durataMinuti, durataIndicativa = false, tipoTratta = tappa.tipo)
+            eventiArco += tappa.evento
+            nodi += tappa.arrivo.luogoId
+        }
+    }
+
+    val nodiConAttesa = nodi.mapIndexed { indice, luogoId ->
+        val entrante = eventiArco.getOrNull(indice - 1)
+        val uscente = eventiArco.getOrNull(indice)
+        val attesa = if (entrante != null && uscente != null) {
+            ChronoUnit.MINUTES.between(entrante.fine, uscente.inizio).toInt().coerceAtLeast(0)
+        } else null
+        NodoPercorso(luogoId, attesa)
+    }
+
+    return PercorsoTemplate(nodiConAttesa, archi) to luoghi.values.toList()
 }

@@ -14,6 +14,9 @@ import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
 import com.desideri.viaggiotemplate.domain.calendar.CalendarWriter
 import com.desideri.viaggiotemplate.domain.calendar.CalendarioDisponibile
 import com.desideri.viaggiotemplate.domain.calendar.EventoDaScrivere
+import com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato
+import com.desideri.viaggiotemplate.domain.calendar.congela
+import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.Template
@@ -21,6 +24,7 @@ import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.Vettore
 import com.desideri.viaggiotemplate.repository.EsecuzioneCreataRepository
+import com.desideri.viaggiotemplate.repository.LuogoRepository
 import com.desideri.viaggiotemplate.repository.TemplateRepository
 import com.desideri.viaggiotemplate.repository.TrattaRepository
 import com.desideri.viaggiotemplate.ui.AppContainer
@@ -73,6 +77,8 @@ data class StatoEsecuzione(
     val orariIndicativi: Map<String, LocalTime> = emptyMap(),
     /** Tutta la libreria Tratte, per poter aggiungere una tratta extra a questa sola esecuzione. */
     val libreriaTratte: List<Tratta> = emptyList(),
+    /** Tutti i Luoghi della libreria, indicizzati per id: servono a congelare partenza/arrivo di ogni evento al momento di "Aggiungi al calendario" (vedi [PosizioneEventoCreato]). */
+    val luoghi: Map<String, Luogo> = emptyMap(),
     val calendarioConfigurato: CalendarioDisponibile? = null,
     val calendarioConfiguratoVerificato: Boolean = false,
     val messaggio: String? = null
@@ -81,6 +87,7 @@ data class StatoEsecuzione(
 class EsecuzioneViewModel(
     private val templateRepository: TemplateRepository,
     private val trattaRepository: TrattaRepository,
+    private val luogoRepository: LuogoRepository,
     private val impostazioniStore: ImpostazioniStore,
     private val esecuzioneCreataRepository: EsecuzioneCreataRepository
 ) : ViewModel() {
@@ -99,6 +106,11 @@ class EsecuzioneViewModel(
         viewModelScope.launch {
             trattaRepository.osservaTratte().collect { lista ->
                 _stato.value = _stato.value.copy(libreriaTratte = lista)
+            }
+        }
+        viewModelScope.launch {
+            luogoRepository.osservaLuoghi().collect { lista ->
+                _stato.value = _stato.value.copy(luoghi = lista.associateBy { it.id })
             }
         }
     }
@@ -476,28 +488,42 @@ class EsecuzioneViewModel(
                     colore = s.coloriSelezionati[ev.templateSlotId] ?: ev.tratta.colore
                 )
             }
+            // inserisciEventi ritorna un id (o null se fallito) per ogni evento, nello stesso ordine
+            // di eventiDaScrivere: serve per correlare ogni id riuscito alla sua tratta di origine,
+            // per congelarne partenza/arrivo (vedi PosizioneEventoCreato) — una lista compattata
+            // (solo i successi) perderebbe quella corrispondenza in caso di fallimento parziale.
             val idInseriti = writer.inserisciEventi(calendario, s.data, eventiDaScrivere)
-            if (idInseriti.isNotEmpty()) {
+            val eventiConId = eventiDaScrivere.zip(idInseriti).mapNotNull { (evD, id) -> id?.let { evD to it } }
+            if (eventiConId.isNotEmpty()) {
                 val esecuzioneId = UUID.randomUUID().toString()
                 // Orario di inizio del più mattiniero degli eventi (stesso arrotondamento scritto su
                 // DTSTART): più intuitivo da ritrovare in "Eventi creati" rispetto al momento in cui
                 // si è premuto il pulsante, che può non coincidere col giorno del viaggio.
                 val inizioPrimoEvento = s.data.atTime(s.eventiCalcolati.minOf { it.inizioBlocco })
                     .atZone(ZoneId.systemDefault()).toInstant()
+                val posizioni = eventiConId.map { (evD, calendarEventId) ->
+                    val tratta = evD.evento.tratta
+                    PosizioneEventoCreato(
+                        calendarEventId = calendarEventId,
+                        tipoTratta = tratta.tipo,
+                        partenza = s.luoghi[tratta.luogoPartenzaId]?.congela(),
+                        arrivo = s.luoghi[tratta.luogoArrivoId]?.congela()
+                    )
+                }
                 viewModelScope.launch {
                     esecuzioneCreataRepository.registra(
                         esecuzioneId,
-                        idInseriti,
+                        posizioni,
                         inizioPrimoEvento,
                         s.templateSelezionato?.nome,
                         s.templateSelezionato?.colore
                     )
                 }
             }
-            _stato.value = if (idInseriti.size == s.eventiCalcolati.size) {
-                s.copy(messaggio = "${idInseriti.size} eventi aggiunti al calendario ✓")
+            _stato.value = if (eventiConId.size == s.eventiCalcolati.size) {
+                s.copy(messaggio = "${eventiConId.size} eventi aggiunti al calendario ✓")
             } else {
-                s.copy(messaggio = "Aggiunti solo ${idInseriti.size} su ${s.eventiCalcolati.size} eventi: controlla il calendario scelto")
+                s.copy(messaggio = "Aggiunti solo ${eventiConId.size} su ${s.eventiCalcolati.size} eventi: controlla il calendario scelto")
             }
         } catch (e: Exception) {
             _stato.value = s.copy(messaggio = "Errore nella scrittura sul calendario: ${e.message}")
@@ -512,6 +538,7 @@ object EsecuzioneViewModelFactory {
             EsecuzioneViewModel(
                 AppContainer.templateRepository,
                 AppContainer.trattaRepository,
+                AppContainer.luogoRepository,
                 AppContainer.impostazioniStore,
                 AppContainer.esecuzioneCreataRepository
             ) as T
