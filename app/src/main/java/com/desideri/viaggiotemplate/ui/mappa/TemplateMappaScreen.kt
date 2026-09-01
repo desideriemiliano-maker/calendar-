@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.Point
 import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
@@ -40,9 +39,11 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.desideri.viaggiotemplate.BuildConfig
+import com.desideri.viaggiotemplate.R
 import com.desideri.viaggiotemplate.domain.mappa.PercorsoTemplate
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorso
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorsoTratta
@@ -372,6 +373,25 @@ private fun configuraOsmdroid(context: Context) {
     }
 }
 
+/**
+ * Stesso path delle icone Material già usate in `TratteScreen` (Train/Flight/DirectionsCar/
+ * Groups/DirectionsWalk), trascritto in risorse VectorDrawable (vedi `res/drawable/ic_tipo_*.xml`)
+ * per poterle disegnare con `setBounds()`+`draw(canvas)` sul Canvas nativo osmdroid: un'ImageVector
+ * di Compose non è rasterizzabile fuori dall'albero di composizione. `ContextCompat.getDrawable`
+ * basta (nessuna dipendenza da AppCompat): minSdk 26 è ben sopra l'API 21 in cui VectorDrawable è
+ * diventato un tipo nativo della piattaforma.
+ */
+private fun iconePerTipo(context: Context): Map<TipoTratta, Drawable> = TipoTratta.values().associateWith { tipo ->
+    val resId = when (tipo) {
+        TipoTratta.TRENO -> R.drawable.ic_tipo_treno
+        TipoTratta.AEREO -> R.drawable.ic_tipo_aereo
+        TipoTratta.AUTO -> R.drawable.ic_tipo_auto
+        TipoTratta.RIUNIONE -> R.drawable.ic_tipo_riunione
+        TipoTratta.A_PIEDI -> R.drawable.ic_tipo_a_piedi
+    }
+    requireNotNull(ContextCompat.getDrawable(context, resId)) { "Icona mancante per $tipo" }
+}
+
 private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
     mapView.overlays.clear()
     val tappe = esito.tappe
@@ -410,7 +430,7 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
         tappa.attesaMinuti?.let { minuti -> GeoPoint(tappa.lat, tappa.lng) to "Attesa ${formattaDurataMinuti(minuti)}" }
     }
     if (etichetteSegmento.isNotEmpty() || etichetteNodo.isNotEmpty()) {
-        mapView.overlays.add(OverlayEtichette(etichetteSegmento, etichetteNodo))
+        mapView.overlays.add(OverlayEtichette(etichetteSegmento, etichetteNodo, iconePerTipo(mapView.context)))
     }
 
     mapView.invalidate()
@@ -442,26 +462,19 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
  */
 private class OverlayEtichette(
     private val etichetteSegmento: List<EtichettaSegmento>,
-    private val etichetteNodo: List<Pair<GeoPoint, String>>
+    private val etichetteNodo: List<Pair<GeoPoint, String>>,
+    private val iconePerTipo: Map<TipoTratta, Drawable>
 ) : Overlay() {
     private val paintSfondo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(190, 0, 0, 0) }
     private val paintTesto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
     }
-    private val paintIconaRiempita = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-    private val paintIconaTratto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-    }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || mapView.zoomLevelDouble < SOGLIA_ZOOM_ETICHETTE) return
         val densita = mapView.context.resources.displayMetrics.density
         paintTesto.textSize = 12f * densita
-        paintIconaTratto.strokeWidth = 1.6f * densita
         val proiezione = mapView.projection
         val larghezza = mapView.width.toFloat()
         val altezza = mapView.height.toFloat()
@@ -473,7 +486,7 @@ private class OverlayEtichette(
             proiezione.toPixels(etichetta.a, p1)
             val visibile = clipSegmentoAlViewport(p0.x.toFloat(), p0.y.toFloat(), p1.x.toFloat(), p1.y.toFloat(), larghezza, altezza)
             if (visibile != null) {
-                disegnaEtichettaSegmento(canvas, (visibile[0] + visibile[2]) / 2, (visibile[1] + visibile[3]) / 2, etichetta.tipo, etichetta.testoDurata)
+                disegnaEtichettaSegmento(canvas, (visibile[0] + visibile[2]) / 2, (visibile[1] + visibile[3]) / 2, etichetta.tipo, etichetta.testoDurata, densita)
             }
         }
         val offsetNodo = 34f * densita
@@ -483,7 +496,7 @@ private class OverlayEtichette(
         }
     }
 
-    /** Etichetta di un nodo (attesa): solo testo su fondino, come prima. */
+    /** Etichetta di un nodo (attesa): solo testo su fondino. */
     private fun disegnaEtichettaTesto(canvas: Canvas, cx: Float, cy: Float, testo: String) {
         val larghezzaTesto = paintTesto.measureText(testo)
         val padding = paintTesto.textSize * 0.4f
@@ -500,12 +513,16 @@ private class OverlayEtichette(
     /**
      * Etichetta di un arco: icona del tipo sempre presente, testo della durata accanto solo se
      * nota (vedi [EtichettaSegmento]) — mai un arco muto quando conosciamo almeno il tipo.
+     *
+     * L'icona è disegnata più grande del testo (1.5x l'altezza del carattere): alla dimensione del
+     * testo i dettagli fini delle icone Material (le due finestre del treno, le due ruote
+     * dell'auto) si perderebbero a schermo piccolo — vedi `res/drawable/ic_tipo_*.xml`.
      */
-    private fun disegnaEtichettaSegmento(canvas: Canvas, cx: Float, cy: Float, tipo: TipoTratta, testoDurata: String?) {
-        val dimensioneIcona = paintTesto.textSize
+    private fun disegnaEtichettaSegmento(canvas: Canvas, cx: Float, cy: Float, tipo: TipoTratta, testoDurata: String?, densita: Float) {
+        val dimensioneIcona = paintTesto.textSize * 1.5f
         val larghezzaTesto = testoDurata?.let { paintTesto.measureText(it) } ?: 0f
-        val spazioIconaTesto = if (testoDurata != null) dimensioneIcona * 0.35f else 0f
-        val padding = paintTesto.textSize * 0.4f
+        val spazioIconaTesto = if (testoDurata != null) 5f * densita else 0f
+        val padding = 5f * densita
         val larghezzaContenuto = dimensioneIcona + spazioIconaTesto + larghezzaTesto
         val altezzaPill = dimensioneIcona + padding
 
@@ -517,61 +534,20 @@ private class OverlayEtichette(
         )
         canvas.drawRoundRect(rect, padding, padding, paintSfondo)
 
-        val centroIconaX = rect.left + padding + dimensioneIcona / 2f
-        disegnaIconaTipo(canvas, centroIconaX, cy, dimensioneIcona / 2f, tipo)
+        val iconaLeft = rect.left + padding
+        iconePerTipo[tipo]?.apply {
+            setBounds(
+                iconaLeft.toInt(),
+                (cy - dimensioneIcona / 2f).toInt(),
+                (iconaLeft + dimensioneIcona).toInt(),
+                (cy + dimensioneIcona / 2f).toInt()
+            )
+            draw(canvas)
+        }
 
         if (testoDurata != null) {
-            val centroTestoX = centroIconaX + dimensioneIcona / 2f + spazioIconaTesto + larghezzaTesto / 2f
+            val centroTestoX = iconaLeft + dimensioneIcona + spazioIconaTesto + larghezzaTesto / 2f
             canvas.drawText(testoDurata, centroTestoX, cy + paintTesto.textSize / 3, paintTesto)
-        }
-    }
-
-    /**
-     * Pittogrammi minimali disegnati a mano (non è possibile rasterizzare un'`ImageVector` di
-     * Compose — come [androidx.compose.material.icons.Icons.Filled.Train] già usata in
-     * `TratteScreen` — fuori dall'albero di composizione, su un `Canvas` nativo osmdroid): stesso
-     * soggetto delle icone Material già in uso altrove nell'app per ciascun tipo, semplificato per
-     * la dimensione ridotta.
-     */
-    private fun disegnaIconaTipo(canvas: Canvas, cx: Float, cy: Float, r: Float, tipo: TipoTratta) {
-        when (tipo) {
-            TipoTratta.TRENO -> {
-                val corpo = RectF(cx - r, cy - r * 0.8f, cx + r, cy + r * 0.5f)
-                canvas.drawRoundRect(corpo, r * 0.3f, r * 0.3f, paintIconaRiempita)
-                canvas.drawCircle(cx - r * 0.4f, cy - r * 0.2f, r * 0.28f, paintSfondo)
-                canvas.drawCircle(cx + r * 0.4f, cy - r * 0.2f, r * 0.28f, paintSfondo)
-                canvas.drawCircle(cx - r * 0.5f, cy + r * 0.65f, r * 0.18f, paintIconaRiempita)
-                canvas.drawCircle(cx + r * 0.5f, cy + r * 0.65f, r * 0.18f, paintIconaRiempita)
-            }
-            TipoTratta.AEREO -> {
-                val path = Path().apply {
-                    moveTo(cx + r, cy)
-                    lineTo(cx - r * 0.6f, cy - r * 0.75f)
-                    lineTo(cx - r * 0.15f, cy)
-                    lineTo(cx - r * 0.6f, cy + r * 0.75f)
-                    close()
-                }
-                canvas.drawPath(path, paintIconaRiempita)
-            }
-            TipoTratta.AUTO -> {
-                val corpo = RectF(cx - r, cy - r * 0.15f, cx + r, cy + r * 0.55f)
-                canvas.drawRoundRect(corpo, r * 0.25f, r * 0.25f, paintIconaRiempita)
-                val cabina = RectF(cx - r * 0.5f, cy - r * 0.75f, cx + r * 0.5f, cy - r * 0.05f)
-                canvas.drawRoundRect(cabina, r * 0.2f, r * 0.2f, paintIconaRiempita)
-                canvas.drawCircle(cx - r * 0.55f, cy + r * 0.6f, r * 0.2f, paintIconaRiempita)
-                canvas.drawCircle(cx + r * 0.55f, cy + r * 0.6f, r * 0.2f, paintIconaRiempita)
-            }
-            TipoTratta.RIUNIONE -> {
-                canvas.drawCircle(cx - r * 0.42f, cy, r * 0.5f, paintIconaRiempita)
-                canvas.drawCircle(cx + r * 0.42f, cy, r * 0.5f, paintIconaRiempita)
-            }
-            TipoTratta.A_PIEDI -> {
-                canvas.drawCircle(cx, cy - r * 0.7f, r * 0.22f, paintIconaRiempita)
-                canvas.drawLine(cx, cy - r * 0.45f, cx, cy + r * 0.15f, paintIconaTratto)
-                canvas.drawLine(cx, cy + r * 0.15f, cx - r * 0.45f, cy + r * 0.75f, paintIconaTratto)
-                canvas.drawLine(cx, cy + r * 0.15f, cx + r * 0.5f, cy + r * 0.55f, paintIconaTratto)
-                canvas.drawLine(cx, cy - r * 0.2f, cx + r * 0.45f, cy - r * 0.5f, paintIconaTratto)
-            }
         }
     }
 }
