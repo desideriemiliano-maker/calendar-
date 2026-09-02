@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -109,8 +111,14 @@ private fun RegistroAttivitaContenuto(onChiudi: () -> Unit, viewModel: RegistroA
     var testoRicerca by remember { mutableStateOf("") }
     var filtroCategoria by remember { mutableStateOf<FiltroCategoria>(FiltroCategoria.Tutte) }
     var menuFiltroEspanso by remember { mutableStateOf(false) }
+    // Solo stato locale del composable, non del ViewModel: non deve sopravvivere alla
+    // chiusura/riapertura del registro (si resetta insieme a ricerca e filtro quando il Dialog
+    // viene ricreato), ma resta invariato mentre si filtra o si cerca perché `remember` non dipende
+    // da `testoRicerca`/`filtroCategoria`. Default false = decrescente (più recenti in cima),
+    // invariato rispetto al comportamento precedente all'introduzione di questo controllo.
+    var ordineCrescente by remember { mutableStateOf(false) }
 
-    val vociFiltrate = remember(stato.voci, testoRicerca, filtroCategoria) {
+    val vociFiltrate = remember(stato.voci, testoRicerca, filtroCategoria, ordineCrescente) {
         stato.voci.filter { voce ->
             (testoRicerca.isBlank() ||
                 voce.descrizione.contains(testoRicerca, ignoreCase = true) ||
@@ -119,7 +127,7 @@ private fun RegistroAttivitaContenuto(onChiudi: () -> Unit, viewModel: RegistroA
                     FiltroCategoria.Tutte -> true
                     is FiltroCategoria.Specifica -> voce.categoria == filtro.categoria
                 }
-        }
+        }.let { lista -> if (ordineCrescente) lista.sortedBy { it.timestampMs } else lista.sortedByDescending { it.timestampMs } }
     }
 
     Scaffold(
@@ -202,6 +210,12 @@ private fun RegistroAttivitaContenuto(onChiudi: () -> Unit, viewModel: RegistroA
                             )
                         }
                     }
+                }
+                IconButton(onClick = { ordineCrescente = !ordineCrescente }) {
+                    Icon(
+                        if (ordineCrescente) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                        contentDescription = if (ordineCrescente) "Ordina dal più recente" else "Ordina dal meno recente"
+                    )
                 }
             }
             ContatoreElementi(mostrati = vociFiltrate.size, totale = stato.voci.size)
