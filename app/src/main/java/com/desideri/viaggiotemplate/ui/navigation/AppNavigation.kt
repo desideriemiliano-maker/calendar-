@@ -77,6 +77,30 @@ private val sezioni = listOf(Sezione.EventiCreati, Sezione.Luoghi, Sezione.Tratt
 /** Frazione della larghezza dello schermo che uno swipe orizzontale deve superare per cambiare sezione: abbastanza da non scattare per un tocco impreciso o l'avvio di uno scroll verticale, non così tanta da sembrare poco reattivo. */
 private const val SOGLIA_SWIPE_FRAZIONE_LARGHEZZA = 0.20f
 
+/**
+ * Indice della sezione dopo uno swipe orizzontale completo, dato lo spostamento accumulato durante
+ * il gesto: funzione pura (nessun Compose) per poterla testare senza un device/emulatore. Nessun
+ * wraparound agli estremi: uno swipe oltre la prima/ultima sezione non fa nulla, invece di saltare
+ * dall'altra parte della barra (comportamento sorprendente per una barra con un ordine fisso).
+ * [indiceCorrente] negativo (sezione non riconosciuta, caso limite transitorio) torna invariato.
+ */
+internal fun indiceSezioneDopoSwipe(
+    indiceCorrente: Int,
+    trascinamentoOrizzontale: Float,
+    larghezzaSchermoPx: Int,
+    numeroSezioni: Int,
+    sogliaFrazioneLarghezza: Float = SOGLIA_SWIPE_FRAZIONE_LARGHEZZA
+): Int {
+    if (indiceCorrente < 0) return indiceCorrente
+    val sogliaMinima = larghezzaSchermoPx * sogliaFrazioneLarghezza
+    val direzione = when {
+        trascinamentoOrizzontale <= -sogliaMinima -> 1
+        trascinamentoOrizzontale >= sogliaMinima -> -1
+        else -> 0
+    }
+    return (indiceCorrente + direzione).coerceIn(0, numeroSezioni - 1)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
@@ -216,18 +240,13 @@ fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
                     var trascinamentoOrizzontale = 0f
                     detectHorizontalDragGestures(
                         onDragEnd = {
-                            if (indiceSezioneCorrente >= 0) {
-                                val sogliaMinima = size.width * SOGLIA_SWIPE_FRAZIONE_LARGHEZZA
-                                val direzione = when {
-                                    trascinamentoOrizzontale <= -sogliaMinima -> 1
-                                    trascinamentoOrizzontale >= sogliaMinima -> -1
-                                    else -> 0
-                                }
-                                val nuovoIndice = (indiceSezioneCorrente + direzione).coerceIn(0, sezioni.lastIndex)
-                                if (direzione != 0 && nuovoIndice != indiceSezioneCorrente) {
-                                    navigaASezione(sezioni[nuovoIndice])
-                                }
-                            }
+                            val nuovoIndice = indiceSezioneDopoSwipe(
+                                indiceCorrente = indiceSezioneCorrente,
+                                trascinamentoOrizzontale = trascinamentoOrizzontale,
+                                larghezzaSchermoPx = size.width,
+                                numeroSezioni = sezioni.size
+                            )
+                            if (nuovoIndice != indiceSezioneCorrente) navigaASezione(sezioni[nuovoIndice])
                             trascinamentoOrizzontale = 0f
                         },
                         onDragCancel = { trascinamentoOrizzontale = 0f }
