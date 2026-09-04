@@ -10,6 +10,8 @@ import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
+import java.time.Duration
+import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
 
 /**
@@ -243,4 +245,86 @@ fun risolviPercorsoEsecuzione(eventiOrdinati: List<EventoCreato>, posizioni: Lis
     }
 
     return PercorsoTemplate(nodiConAttesa, archi) to luoghi.values.toList()
+}
+
+/**
+ * Dove ci si troverebbe ADESSO lungo un'esecuzione, secondo la sola pianificazione (orari reali
+ * degli eventi già scritti a calendario): MAI una posizione GPS — vedi [calcolaPosizioneAttuale].
+ */
+sealed class PosizioneAttualeEsecuzione {
+    abstract val lat: Double
+    abstract val lng: Double
+
+    /** In transito su una tratta: coordinate interpolate tra partenza e arrivo in base alla frazione di tempo reale trascorsa. */
+    data class SuSegmento(override val lat: Double, override val lng: Double) : PosizioneAttualeEsecuzione()
+
+    /** In un'attesa tra due eventi consecutivi nello stesso luogo: nessuna linea da percorrere, si evidenzia il luogo stesso. */
+    data class SuLuogo(val luogoId: String, override val lat: Double, override val lng: Double) : PosizioneAttualeEsecuzione()
+}
+
+/**
+ * Calcola dove ci si troverebbe ADESSO lungo l'esecuzione, in base ai soli orari pianificati (reali,
+ * dagli eventi già scritti a calendario) — non è mai una posizione GPS, solo una stima: interpola
+ * linearmente tra partenza e arrivo dell'evento in corso secondo la frazione di tempo trascorsa tra
+ * il suo inizio e la sua fine.
+ *
+ * Si applica solo quando [adesso] cade dentro la finestra temporale di QUESTA esecuzione: prima del
+ * primo evento (viaggio non ancora iniziato) o dopo l'ultimo (viaggio concluso) ritorna `null`.
+ *
+ * Ogni evento è considerato contro l'intera [eventiOrdinati] (non filtrata per posizione nota, a
+ * differenza di [risolviPercorsoEsecuzione]): se l'evento in corso ORA non ha una posizione
+ * tracciabile (nessuna riga in [posizioni], o coordinate mancanti su partenza/arrivo), si ritorna
+ * `null` invece di "saltare" al prossimo evento tracciabile — mostrare lì una posizione sarebbe
+ * inventata, dato che non sappiamo dove si trovi realmente durante quella tratta.
+ *
+ * Se [adesso] cade in un'attesa tra la fine di un evento e l'inizio del successivo, non c'è una
+ * linea da percorrere: si evidenzia invece il luogo in cui ci si trova, ma solo quando l'arrivo del
+ * primo evento e la partenza del secondo sono confermati essere lo stesso luogo — altrimenti (un
+ * evento intermedio non tracciabile "saltato" nel mezzo) non c'è abbastanza certezza su dove ci si
+ * trovi durante quell'attesa, e si ritorna `null` piuttosto che indovinare.
+ *
+ * [eventiOrdinati] deve essere ordinato per orario di inizio reale, come per [risolviPercorsoEsecuzione].
+ */
+fun calcolaPosizioneAttuale(
+    eventiOrdinati: List<EventoCreato>,
+    posizioni: List<PosizioneEventoCreato>,
+    adesso: ZonedDateTime
+): PosizioneAttualeEsecuzione? {
+    val posizioniPerId = posizioni.associateBy { it.calendarEventId }
+
+    eventiOrdinati.forEachIndexed { indice, evento ->
+        if (!adesso.isBefore(evento.inizio) && !adesso.isAfter(evento.fine)) {
+            val posizione = posizioniPerId[evento.eventoId] ?: return null
+            val partenza = posizione.partenza ?: return null
+            val arrivo = posizione.arrivo ?: return null
+            if (partenza.luogoId == arrivo.luogoId) {
+                val lat = arrivo.latitudine
+                val lng = arrivo.longitudine
+                return if (lat != null && lng != null) PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, lat, lng) else null
+            }
+            val latPartenza = partenza.latitudine
+            val lngPartenza = partenza.longitudine
+            val latArrivo = arrivo.latitudine
+            val lngArrivo = arrivo.longitudine
+            if (latPartenza == null || lngPartenza == null || latArrivo == null || lngArrivo == null) return null
+            val durataTotaleMs = Duration.between(evento.inizio, evento.fine).toMillis()
+            val frazione = if (durataTotaleMs <= 0) 1.0 else
+                (Duration.between(evento.inizio, adesso).toMillis().toDouble() / durataTotaleMs).coerceIn(0.0, 1.0)
+            return PosizioneAttualeEsecuzione.SuSegmento(
+                lat = latPartenza + (latArrivo - latPartenza) * frazione,
+                lng = lngPartenza + (lngArrivo - lngPartenza) * frazione
+            )
+        }
+
+        val successivo = eventiOrdinati.getOrNull(indice + 1) ?: return@forEachIndexed
+        if (adesso.isAfter(evento.fine) && adesso.isBefore(successivo.inizio)) {
+            val arrivo = posizioniPerId[evento.eventoId]?.arrivo ?: return null
+            val partenzaSuccessiva = posizioniPerId[successivo.eventoId]?.partenza ?: return null
+            if (arrivo.luogoId != partenzaSuccessiva.luogoId) return null
+            val lat = arrivo.latitudine
+            val lng = arrivo.longitudine
+            return if (lat != null && lng != null) PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, lat, lng) else null
+        }
+    }
+    return null
 }

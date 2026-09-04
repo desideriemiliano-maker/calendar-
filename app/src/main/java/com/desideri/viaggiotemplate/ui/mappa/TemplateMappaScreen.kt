@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Point
 import android.graphics.RectF
@@ -45,6 +46,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.desideri.viaggiotemplate.BuildConfig
 import com.desideri.viaggiotemplate.R
 import com.desideri.viaggiotemplate.domain.mappa.PercorsoTemplate
+import com.desideri.viaggiotemplate.domain.mappa.PosizioneAttualeEsecuzione
+import com.desideri.viaggiotemplate.domain.mappa.calcolaPosizioneAttuale
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorso
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorsoTratta
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorsoEsecuzione
@@ -58,6 +61,7 @@ import com.desideri.viaggiotemplate.domain.model.Template
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -68,6 +72,7 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.views.overlay.Polyline
 import java.io.File
+import java.time.ZonedDateTime
 import java.util.Locale
 
 /** Un nodo del percorso già geolocalizzato (coordinate dirette o geocodificate), pronto per il marker. */
@@ -272,6 +277,9 @@ fun TrattaMappaScreen(
  * [eventiOrdinati] devono essere ordinati per orario di inizio reale, come già li restituisce
  * [com.desideri.viaggiotemplate.domain.calendar.CalendarWriter.eventiPerId].
  */
+/** Intervallo di ricalcolo di [PosizioneAttualeEsecuzione]: un aggiornamento più frequente non porterebbe beneficio percepibile (l'indicatore mostra comunque una stima, non un tracciamento in tempo reale) e consumerebbe batteria inutilmente mentre la mappa resta aperta. */
+private const val INTERVALLO_AGGIORNAMENTO_POSIZIONE_MS = 30_000L
+
 @Composable
 fun EsecuzioneMappaScreen(
     titolo: String,
@@ -281,6 +289,35 @@ fun EsecuzioneMappaScreen(
     padding: PaddingValues
 ) {
     val (percorso, luoghi) = remember(eventiOrdinati, posizioni) { risolviPercorsoEsecuzione(eventiOrdinati, posizioni) }
+
+    // "adesso" si aggiorna a bassa frequenza SOLO mentre la schermata è effettivamente visibile
+    // (RESUME/PAUSE del lifecycle, come già fa MappaOsm per il MapView sotto): il loop nel
+    // LaunchedEffect è annidato dentro la sua stessa key, quindi si ferma automaticamente alla
+    // ricomposizione quando `schermataVisibile` torna false, senza bisogno di cancellarlo a mano.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var schermataVisibile by remember { mutableStateOf(true) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> schermataVisibile = true
+                Lifecycle.Event.ON_PAUSE -> schermataVisibile = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    var adesso by remember { mutableStateOf(ZonedDateTime.now()) }
+    LaunchedEffect(schermataVisibile) {
+        while (schermataVisibile) {
+            adesso = ZonedDateTime.now()
+            delay(INTERVALLO_AGGIORNAMENTO_POSIZIONE_MS)
+        }
+    }
+    val posizioneAttuale = remember(eventiOrdinati, posizioni, adesso) {
+        calcolaPosizioneAttuale(eventiOrdinati, posizioni, adesso)
+    }
+
     MappaPercorsoScreen(
         titolo = titolo,
         percorso = percorso,
@@ -292,7 +329,8 @@ fun EsecuzioneMappaScreen(
             "indirizzo né coordinate GPS al momento della creazione.",
         notaInformativa = "Le posizioni mostrate sono quelle salvate al momento della creazione: modifiche successive " +
             "a Luoghi o Tratte non le cambiano. Gli eventi creati prima dell'introduzione di questa mappa potrebbero " +
-            "non avere alcuna posizione disponibile."
+            "non avere alcuna posizione disponibile.",
+        posizioneAttuale = posizioneAttuale
     )
 }
 
@@ -311,7 +349,8 @@ private fun MappaPercorsoScreen(
     onChiudi: () -> Unit,
     padding: PaddingValues,
     messaggioNessunaTappa: String = MESSAGGIO_NESSUNA_TAPPA_LIBRERIA,
-    notaInformativa: String? = null
+    notaInformativa: String? = null,
+    posizioneAttuale: PosizioneAttualeEsecuzione? = null
 ) {
     val context = LocalContext.current
     var risoluzione by remember { mutableStateOf<RisoluzioneMappa?>(null) }
@@ -339,7 +378,7 @@ private fun MappaPercorsoScreen(
                 if (esito.senzaDati > 0 || esito.geocodingFallito > 0) {
                     BannerMappa("Tappe non mostrate: " + descriviTappeEscluse(esito.senzaDati, esito.geocodingFallito) + ".")
                 }
-                MappaOsm(esito = esito, modifier = Modifier.fillMaxWidth().weight(1f))
+                MappaOsm(esito = esito, posizioneAttuale = posizioneAttuale, modifier = Modifier.fillMaxWidth().weight(1f))
             }
         }
     }
@@ -384,7 +423,7 @@ private const val SOGLIA_ZOOM_ETICHETTE = 11.0
  * dei tile di questa istanza.
  */
 @Composable
-private fun MappaOsm(esito: RisoluzioneMappa, modifier: Modifier) {
+private fun MappaOsm(esito: RisoluzioneMappa, posizioneAttuale: PosizioneAttualeEsecuzione?, modifier: Modifier) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
@@ -411,7 +450,7 @@ private fun MappaOsm(esito: RisoluzioneMappa, modifier: Modifier) {
                 mapViewRef = this
             }
         },
-        update = { mapView -> aggiornaOverlay(mapView, esito) },
+        update = { mapView -> aggiornaOverlay(mapView, esito, posizioneAttuale) },
         onRelease = { it.onDetach() }
     )
 }
@@ -467,7 +506,7 @@ private fun iconePerLuogo(context: Context): Map<IconaLuogo, Drawable> = IconaLu
     requireNotNull(ContextCompat.getDrawable(context, resId)) { "Icona mancante per $icona" }
 }
 
-private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
+private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa, posizioneAttuale: PosizioneAttualeEsecuzione?) {
     mapView.overlays.clear()
     val tappe = esito.tappe
     val punti = tappe.map { GeoPoint(it.lat, it.lng) }
@@ -507,6 +546,24 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa) {
     }
     if (etichetteSegmento.isNotEmpty() || etichetteNodo.isNotEmpty()) {
         mapView.overlays.add(OverlayEtichette(etichetteSegmento, etichetteNodo, iconePerTipo(mapView.context)))
+    }
+
+    posizioneAttuale?.let { posizione ->
+        val puntoAttuale = GeoPoint(posizione.lat, posizione.lng)
+        val descrizione = when (posizione) {
+            is PosizioneAttualeEsecuzione.SuSegmento -> "In viaggio su questa tratta, secondo l'orario pianificato."
+            is PosizioneAttualeEsecuzione.SuLuogo -> "In attesa qui, secondo l'orario pianificato."
+        }
+        mapView.overlays.add(
+            Marker(mapView).apply {
+                position = puntoAttuale
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                title = "Posizione teorica (stimata dagli orari)"
+                snippet = "$descrizione Non è la tua posizione GPS reale."
+                icon = iconaPosizioneAttuale(mapView.context)
+            }
+        )
+        mapView.overlays.add(OverlayPosizioneAttuale(puntoAttuale))
     }
 
     mapView.invalidate()
@@ -706,4 +763,86 @@ private fun iconaMarkerNumerato(context: Context, numero: Int, coloreLuogo: Int?
     }
 
     return BitmapDrawable(context.resources, bitmap)
+}
+
+/**
+ * Colore neutro (non usato per nessun pin di [iconaMarkerNumerato]: quelli sono sempre il colore
+ * scelto dall'utente per il Luogo, o il rosso di default) riservato all'indicatore di
+ * [PosizioneAttualeEsecuzione]: grigio "spento" invece di un colore vivo come gli altri marker,
+ * per suggerire visivamente "stima/fantasma", non un luogo vero.
+ */
+private const val COLORE_POSIZIONE_ATTUALE = "#616161"
+
+/**
+ * Marker dell'indicatore di posizione teorica (vedi [PosizioneAttualeEsecuzione]): stessa forma
+ * circolare di [iconaMarkerNumerato] ma deliberatamente diversa in tre modi contemporaneamente, non
+ * uno solo, per non lasciare dubbi che sia un'altra tappa dell'itinerario:
+ * - colore grigio neutro invece del colore del Luogo/rosso di default;
+ * - bordo TRATTEGGIATO invece che pieno (richiama l'idea di "stimato", non di un dato certo);
+ * - un'icona di orologio al posto del numero progressivo o dell'icona del Luogo, a richiamare che
+ *   il punto viene dagli ORARI pianificati, non da un rilevamento GPS.
+ * Il testo esplicito che chiarisce "non è la tua posizione GPS reale" resta comunque nel titolo/
+ * snippet del marker (mostrati al tocco) e nell'etichetta sempre visibile di [OverlayPosizioneAttuale].
+ */
+private fun iconaPosizioneAttuale(context: Context): Drawable {
+    val densita = context.resources.displayMetrics.density
+    val diametro = (30 * densita).toInt().coerceAtLeast(22)
+    val bitmap = Bitmap.createBitmap(diametro, diametro, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val raggio = diametro / 2f
+
+    val paintCerchio = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor(COLORE_POSIZIONE_ATTUALE) }
+    canvas.drawCircle(raggio, raggio, raggio - 3f, paintCerchio)
+
+    val paintBordo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f * densita
+        pathEffect = DashPathEffect(floatArrayOf(3.5f * densita, 2.5f * densita), 0f)
+    }
+    canvas.drawCircle(raggio, raggio, raggio - 3f, paintBordo)
+
+    val orologio = requireNotNull(ContextCompat.getDrawable(context, R.drawable.ic_posizione_stimata)) { "Icona posizione stimata mancante" }
+    val dimensioneIcona = (diametro * 0.55f).toInt()
+    val offset = ((diametro - dimensioneIcona) / 2f).toInt()
+    orologio.setBounds(offset, offset, offset + dimensioneIcona, offset + dimensioneIcona)
+    orologio.draw(canvas)
+
+    return BitmapDrawable(context.resources, bitmap)
+}
+
+/**
+ * Etichetta di testo SEMPRE visibile (a differenza di [OverlayEtichette], non è nascosta sotto
+ * [SOGLIA_ZOOM_ETICHETTE]) accanto all'indicatore di posizione teorica: essendo un solo elemento
+ * per mappa, non c'è rischio di affollamento come per le etichette di durata/attesa su percorsi con
+ * molte tappe, ed è importante che il chiarimento "non è una posizione reale" resti leggibile a
+ * colpo d'occhio, senza dover toccare il marker per aprirne il popup.
+ */
+private class OverlayPosizioneAttuale(private val punto: GeoPoint) : Overlay() {
+    private val paintSfondo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(220, 97, 97, 97) }
+    private val paintTesto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+    }
+
+    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+        if (shadow) return
+        val densita = mapView.context.resources.displayMetrics.density
+        paintTesto.textSize = 11f * densita
+        val p = Point()
+        mapView.projection.toPixels(punto, p)
+
+        val testo = "posizione teorica"
+        val larghezzaTesto = paintTesto.measureText(testo)
+        val padding = paintTesto.textSize * 0.35f
+        val cy = p.y - 26f * densita
+        val rect = RectF(
+            p.x - larghezzaTesto / 2 - padding,
+            cy - paintTesto.textSize / 2 - padding / 2,
+            p.x + larghezzaTesto / 2 + padding,
+            cy + paintTesto.textSize / 2 + padding / 2
+        )
+        canvas.drawRoundRect(rect, padding, padding, paintSfondo)
+        canvas.drawText(testo, p.x.toFloat(), cy + paintTesto.textSize / 3, paintTesto)
+    }
 }
