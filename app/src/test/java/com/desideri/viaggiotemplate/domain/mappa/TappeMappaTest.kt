@@ -3,6 +3,7 @@ package com.desideri.viaggiotemplate.domain.mappa
 import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.LuogoCongelato
 import com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato
+import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -37,6 +38,10 @@ class TappeMappaTest {
         partenza: LuogoCongelato?,
         arrivo: LuogoCongelato?
     ) = PosizioneEventoCreato(calendarEventId = id, tipoTratta = TipoTratta.AUTO, partenza = partenza, arrivo = arrivo)
+
+    private fun luogoLive(id: String, nome: String = id, lat: Double? = 10.0, lng: Double? = 20.0) = Luogo(
+        id = id, nome = nome, indirizzo = null, latitudine = lat, longitudine = lng, colore = null, icona = null
+    )
 
     @Test
     fun `adesso a meta di una tratta interpola linearmente tra partenza e arrivo`() {
@@ -214,6 +219,78 @@ class TappeMappaTest {
         )
 
         assertTrue(risultato is RisultatoPosizioneAttuale.NonDisponibile)
+    }
+
+    /**
+     * Diagnosi confermata dall'utente (marker di fallback debug sempre mostrato, mai quello vero):
+     * un'esecuzione può avere posizioni congelate valide su nome/id (i pin della mappa base
+     * funzionano) ma senza coordinate, perché il Luogo non le aveva ancora al momento della
+     * creazione. Con lo stesso id anche nella libreria Luoghi attuale, il ripiego su luoghiLive
+     * deve recuperare le coordinate e produrre comunque una posizione.
+     */
+    @Test
+    fun `coordinate congelate mancanti vengono recuperate dal Luogo attuale con lo stesso id`() {
+        val partenza = luogo("A", lat = 0.0, lng = 0.0)
+        val arrivoSenzaCoordinate = luogo("milano-centrale", "Milano Centrale", lat = null, lng = null)
+        val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0))
+        val adesso = istante(10, 9, 30)
+
+        val risultato = calcolaPosizioneAttuale(
+            listOf(ev),
+            listOf(posizione(1, partenza, arrivoSenzaCoordinate)),
+            adesso,
+            luoghiLive = listOf(luogoLive("milano-centrale", "Milano Centrale", lat = 45.4841, lng = 9.2039))
+        )
+
+        assertTrue("atteso Trovata, ottenuto $risultato", risultato is RisultatoPosizioneAttuale.Trovata)
+    }
+
+    /**
+     * Stesso caso, ma il Luogo congelato ha un id che non esiste più nella libreria attuale (es.
+     * eliminato e poi ricreato): il ripiego prova per nome, e deve funzionare quando il nome è
+     * univoco tra i Luoghi attuali.
+     */
+    @Test
+    fun `coordinate congelate mancanti vengono recuperate dal Luogo attuale con lo stesso nome se l'id non esiste piu`() {
+        val partenza = luogo("A", lat = 0.0, lng = 0.0)
+        val arrivoSenzaCoordinate = luogo("id-vecchio-eliminato", "Milano Centrale", lat = null, lng = null)
+        val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0))
+        val adesso = istante(10, 9, 30)
+
+        val risultato = calcolaPosizioneAttuale(
+            listOf(ev),
+            listOf(posizione(1, partenza, arrivoSenzaCoordinate)),
+            adesso,
+            luoghiLive = listOf(luogoLive("id-nuovo", "Milano Centrale", lat = 45.4841, lng = 9.2039))
+        )
+
+        assertTrue("atteso Trovata, ottenuto $risultato", risultato is RisultatoPosizioneAttuale.Trovata)
+    }
+
+    /**
+     * Il ripiego per nome NON deve mai indovinare: se due Luoghi attuali condividono lo stesso
+     * nome, scegliere uno a caso produrrebbe potenzialmente una posizione SBAGLIATA - peggio che
+     * nessuna posizione. In questo caso l'esito resta NonDisponibile, esattamente come senza
+     * ripiego.
+     */
+    @Test
+    fun `il ripiego per nome non si applica se il nome e' ambiguo tra piu' Luoghi attuali`() {
+        val partenza = luogo("A", lat = 0.0, lng = 0.0)
+        val arrivoSenzaCoordinate = luogo("id-vecchio", "Milano Centrale", lat = null, lng = null)
+        val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0))
+        val adesso = istante(10, 9, 30)
+
+        val risultato = calcolaPosizioneAttuale(
+            listOf(ev),
+            listOf(posizione(1, partenza, arrivoSenzaCoordinate)),
+            adesso,
+            luoghiLive = listOf(
+                luogoLive("id-1", "Milano Centrale", lat = 45.4841, lng = 9.2039),
+                luogoLive("id-2", "Milano Centrale", lat = 45.0, lng = 9.0)
+            )
+        )
+
+        assertTrue("atteso NonDisponibile, ottenuto $risultato", risultato is RisultatoPosizioneAttuale.NonDisponibile)
     }
 
     /**

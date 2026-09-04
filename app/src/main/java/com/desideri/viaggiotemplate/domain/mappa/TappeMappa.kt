@@ -293,6 +293,26 @@ private fun stessoLuogo(a: LuogoCongelato, b: LuogoCongelato): Boolean =
     a.luogoId == b.luogoId || a.nome.trim().equals(b.nome.trim(), ignoreCase = true)
 
 /**
+ * Coordinate per un luogo congelato: quelle congelate se presenti, altrimenti (diagnosi
+ * confermata: un'esecuzione con posizioni congelate valide su nome/id ma senza coordinate,
+ * storicamente il caso comune per stazioni/aeroporti compilati soprattutto per le tratte AUTO) un
+ * ripiego sul Luogo ATTUALE in [luoghiLive] — prima per id, poi per nome SOLO se univoco tra i
+ * Luoghi attuali: un nome duplicato renderebbe la scelta arbitraria, e l'indicatore deve restare
+ * corretto o assente, mai una posizione indovinata (da cui "solo se univoco", niente `firstOrNull`).
+ */
+private fun risolviCoordinate(congelato: LuogoCongelato, luoghiLive: List<Luogo>): Pair<Double, Double>? {
+    val lat = congelato.latitudine
+    val lng = congelato.longitudine
+    if (lat != null && lng != null) return lat to lng
+
+    val live = luoghiLive.find { it.id == congelato.luogoId }
+        ?: luoghiLive.filter { it.nome.trim().equals(congelato.nome.trim(), ignoreCase = true) }.singleOrNull()
+    val latLive = live?.latitudine
+    val lngLive = live?.longitudine
+    return if (latLive != null && lngLive != null) latLive to lngLive else null
+}
+
+/**
  * Calcola dove ci si troverebbe ADESSO lungo l'esecuzione, in base ai soli orari pianificati (reali,
  * dagli eventi già scritti a calendario) — non è mai una posizione GPS, solo una stima: interpola
  * linearmente tra partenza e arrivo dell'evento in corso secondo la frazione di tempo trascorsa tra
@@ -326,7 +346,15 @@ private fun stessoLuogo(a: LuogoCongelato, b: LuogoCongelato): Boolean =
 fun calcolaPosizioneAttuale(
     eventiOrdinati: List<EventoCreato>,
     posizioni: List<PosizioneEventoCreato>,
-    adesso: ZonedDateTime
+    adesso: ZonedDateTime,
+    // Diagnosi confermata (segnalazione utente, 04/09/2026): un'esecuzione può avere posizioni
+    // congelate valide (nome/id, il che spiega perché i pin sulla mappa base funzionano) ma senza
+    // coordinate, perché il Luogo non le aveva al momento della creazione - non un problema di
+    // esecuzioni precedenti alla migrazione 16->17 (in quel caso partenza/arrivo sarebbero interi
+    // null insieme, svuotando anche la mappa base, il che non succede). luoghiLive alimenta il
+    // ripiego di risolviCoordinate: default vuoto per i chiamanti (inclusi i test) che non hanno
+    // accesso ai Luoghi live, con lo stesso comportamento di prima (nessun ripiego).
+    luoghiLive: List<Luogo> = emptyList()
 ): RisultatoPosizioneAttuale {
     val posizioniPerId = posizioni.associateBy { it.calendarEventId }
 
@@ -342,26 +370,23 @@ fun calcolaPosizioneAttuale(
             val arrivo = posizione.arrivo
                 ?: return nonDisponibile("Arrivo mancante per l'evento in corso (${evento.titolo}).")
             if (stessoLuogo(partenza, arrivo)) {
-                val lat = arrivo.latitudine
-                val lng = arrivo.longitudine
-                return if (lat != null && lng != null) {
-                    RisultatoPosizioneAttuale.Trovata(PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, lat, lng))
+                val coordinate = risolviCoordinate(arrivo, luoghiLive)
+                return if (coordinate != null) {
+                    RisultatoPosizioneAttuale.Trovata(PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, coordinate.first, coordinate.second))
                 } else {
                     nonDisponibile("Coordinate mancanti per il luogo dell'evento in corso (${arrivo.nome}).")
                 }
             }
-            val latPartenza = partenza.latitudine
-            val lngPartenza = partenza.longitudine
-            val latArrivo = arrivo.latitudine
-            val lngArrivo = arrivo.longitudine
-            if (latPartenza == null || lngPartenza == null || latArrivo == null || lngArrivo == null) {
+            val coordinatePartenza = risolviCoordinate(partenza, luoghiLive)
+            val coordinateArrivo = risolviCoordinate(arrivo, luoghiLive)
+            if (coordinatePartenza == null || coordinateArrivo == null) {
                 // Nomina esplicitamente QUALE dei due estremi manca di coordinate (può essere uno
                 // solo, es. Roma Termini senza coordinate mentre Milano Centrale le ha): un motivo
                 // generico "partenza o arrivo" non basterebbe all'utente a sapere quale luogo
                 // correggere in Luoghi senza controllarli entrambi a mano.
                 val luoghiSenzaCoordinate = buildList {
-                    if (latPartenza == null || lngPartenza == null) add(partenza.nome)
-                    if (latArrivo == null || lngArrivo == null) add(arrivo.nome)
+                    if (coordinatePartenza == null) add(partenza.nome)
+                    if (coordinateArrivo == null) add(arrivo.nome)
                 }.joinToString(", ")
                 return nonDisponibile("Coordinate mancanti per $luoghiSenzaCoordinate: impossibile calcolare la posizione sulla tratta in corso (${evento.titolo}).")
             }
@@ -370,8 +395,8 @@ fun calcolaPosizioneAttuale(
                 (Duration.between(evento.inizio, adesso).toMillis().toDouble() / durataTotaleMs).coerceIn(0.0, 1.0)
             return RisultatoPosizioneAttuale.Trovata(
                 PosizioneAttualeEsecuzione.SuSegmento(
-                    lat = latPartenza + (latArrivo - latPartenza) * frazione,
-                    lng = lngPartenza + (lngArrivo - lngPartenza) * frazione
+                    lat = coordinatePartenza.first + (coordinateArrivo.first - coordinatePartenza.first) * frazione,
+                    lng = coordinatePartenza.second + (coordinateArrivo.second - coordinatePartenza.second) * frazione
                 )
             )
         }
@@ -385,10 +410,9 @@ fun calcolaPosizioneAttuale(
             if (!stessoLuogo(arrivo, partenzaSuccessiva)) {
                 return nonDisponibile("Attesa tra luoghi diversi: l'evento intermedio non è tracciabile con certezza.")
             }
-            val lat = arrivo.latitudine
-            val lng = arrivo.longitudine
-            return if (lat != null && lng != null) {
-                RisultatoPosizioneAttuale.Trovata(PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, lat, lng))
+            val coordinate = risolviCoordinate(arrivo, luoghiLive)
+            return if (coordinate != null) {
+                RisultatoPosizioneAttuale.Trovata(PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, coordinate.first, coordinate.second))
             } else {
                 nonDisponibile("Coordinate mancanti per il luogo dell'attesa (${arrivo.nome}).")
             }

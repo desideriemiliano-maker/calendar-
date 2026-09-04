@@ -288,6 +288,11 @@ fun EsecuzioneMappaScreen(
     titolo: String,
     eventiOrdinati: List<EventoCreato>,
     posizioni: List<PosizioneEventoCreato>,
+    // Luoghi ATTUALI della libreria, non quelli congelati: solo per il ripiego di
+    // calcolaPosizioneAttuale quando una posizione congelata manca di coordinate - vedi
+    // risolviCoordinate in TappeMappa.kt. Non usati per il percorso/i pin della mappa base
+    // (risolviPercorsoEsecuzione), che restano deliberatamente sulle sole posizioni congelate.
+    luoghiLive: List<Luogo> = emptyList(),
     onChiudi: () -> Unit,
     padding: PaddingValues
 ) {
@@ -331,8 +336,8 @@ fun EsecuzioneMappaScreen(
     // (usato SOLO per il log, non più per la UI - vedi sotto) resta comunque sempre in
     // RisultatoPosizioneAttuale.NonDisponibile.motivo.
     var mostraFallbackDebug by remember { mutableStateOf(false) }
-    LaunchedEffect(eventiOrdinati, posizioni, adesso) {
-        val risultato = calcolaPosizioneAttuale(eventiOrdinati, posizioni, adesso)
+    LaunchedEffect(eventiOrdinati, posizioni, adesso, luoghiLive) {
+        val risultato = calcolaPosizioneAttuale(eventiOrdinati, posizioni, adesso, luoghiLive)
         posizioneAttuale = (risultato as? RisultatoPosizioneAttuale.Trovata)?.posizione
         mostraFallbackDebug = (risultato as? RisultatoPosizioneAttuale.NonDisponibile)?.let { !it.fuoriFinestra } ?: false
         val finestraInizio = eventiOrdinati.firstOrNull()?.inizio
