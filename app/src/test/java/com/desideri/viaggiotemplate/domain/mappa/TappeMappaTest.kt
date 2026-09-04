@@ -54,6 +54,31 @@ class TappeMappaTest {
         assertEquals(10.0, posizioneAttuale.lng, 0.0001)
     }
 
+    /**
+     * Riproduce il secondo scenario reale segnalato dall'utente (stessa esecuzione Lugano/Ariccia,
+     * screenshot delle 18:14): adesso è DENTRO il terzo blocco (17:30-21:00, Milano Centrale ->
+     * Roma Termini), non più in un'attesa - il ramo da verificare è l'interpolazione, non quello
+     * dell'attesa già coperto sopra. Conferma che la funzione produce comunque una posizione
+     * corretta: il problema riportato ("non vedo indicatore né pulsante") non era qui, ma
+     * nell'inquadratura della mappa e nella scopribilità del pulsante (vedi TemplateMappaScreen).
+     */
+    @Test
+    fun `adesso dentro il terzo blocco (17-30 a 21-00, verificato alle 18-14) interpola correttamente`() {
+        val partenza = luogo("milano-centrale", "Milano Centrale", lat = 0.0, lng = 0.0)
+        val arrivo = luogo("roma-termini", "Roma Termini", lat = 100.0, lng = 200.0)
+        val ev = evento(3, istante(4, 17, 30), istante(4, 21, 0), titolo = "Milano Centrale -> Roma Termini")
+        val adesso = istante(4, 18, 14)
+
+        val risultato = calcolaPosizioneAttuale(listOf(ev), listOf(posizione(3, partenza, arrivo)), adesso)
+
+        val trovata = risultato as? RisultatoPosizioneAttuale.Trovata
+        assertTrue("atteso Trovata, ottenuto $risultato", trovata != null)
+        val posizioneAttuale = trovata!!.posizione as PosizioneAttualeEsecuzione.SuSegmento
+        val frazioneAttesa = 44.0 / 210.0 // 17:30 -> 18:14 = 44 minuti, su una tratta di 3h30m = 210 minuti
+        assertEquals(100.0 * frazioneAttesa, posizioneAttuale.lat, 0.01)
+        assertEquals(200.0 * frazioneAttesa, posizioneAttuale.lng, 0.01)
+    }
+
     @Test
     fun `adesso in un'attesa tra due eventi nello stesso luogo evidenzia il luogo`() {
         val a = luogo("A")

@@ -11,6 +11,7 @@ import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.location.Geocoder
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,13 +21,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -391,6 +396,11 @@ private fun MappaPercorsoScreen(
     // pulsante "vai alla posizione teorica" per comandare centro/zoom dall'esterno, dato che
     // MappaOsm la tiene altrimenti solo in uno stato locale a se' non raggiungibile da qui.
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+    // notaInformativa e avvisoPosizioneAttuale erano banner fissi sopra la mappa: l'utente li ha
+    // segnalati come fastidiosi durante la navigazione (occupano spazio permanentemente). Restano
+    // consultabili qui, dietro un'icona info nella toolbar, invece che sempre visibili - vedi anche
+    // il registro attività, dove avvisoPosizioneAttuale è comunque sempre loggato.
+    var mostraInfoDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(percorso, luoghi) {
         risoluzione = risolviMappa(context, percorso, luoghi)
@@ -402,18 +412,25 @@ private fun MappaPercorsoScreen(
                 Icon(Icons.Filled.ArrowBack, contentDescription = "Chiudi mappa")
             }
             Text(titolo, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            // Visibile solo quando esiste davvero una posizione teorica da raggiungere: senza,
-            // sarebbe un pulsante morto (nessun posto dove andare).
-            if (posizioneAttuale != null) {
-                IconButton(onClick = {
-                    mapViewRef?.let { mapView ->
-                        mapView.controller.setZoom(ZOOM_POSIZIONE_ATTUALE)
-                        mapView.controller.animateTo(GeoPoint(posizioneAttuale.lat, posizioneAttuale.lng))
-                    }
-                }) {
-                    Icon(Icons.Filled.Schedule, contentDescription = "Vai alla posizione teorica")
+            if (notaInformativa != null || avvisoPosizioneAttuale != null) {
+                IconButton(onClick = { mostraInfoDialog = true }) {
+                    Icon(Icons.Filled.Info, contentDescription = "Informazioni")
                 }
             }
+        }
+
+        if (mostraInfoDialog) {
+            AlertDialog(
+                onDismissRequest = { mostraInfoDialog = false },
+                confirmButton = { TextButton(onClick = { mostraInfoDialog = false }) { Text("OK") } },
+                title = { Text("Informazioni") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        notaInformativa?.let { Text(it) }
+                        avvisoPosizioneAttuale?.let { Text("Posizione teorica non mostrata: $it") }
+                    }
+                }
+            )
         }
 
         val esito = risoluzione
@@ -423,17 +440,38 @@ private fun MappaPercorsoScreen(
             }
             esito.tappe.isEmpty() -> MessaggioNessunaTappa(messaggioNessunaTappa)
             else -> {
-                notaInformativa?.let { BannerMappa(it) }
                 if (esito.senzaDati > 0 || esito.geocodingFallito > 0) {
                     BannerMappa("Tappe non mostrate: " + descriviTappeEscluse(esito.senzaDati, esito.geocodingFallito) + ".")
                 }
-                avvisoPosizioneAttuale?.let { BannerMappa("Posizione teorica non mostrata: $it") }
-                MappaOsm(
-                    esito = esito,
-                    posizioneAttuale = posizioneAttuale,
-                    onMapReady = { mapViewRef = it },
-                    modifier = Modifier.fillMaxWidth().weight(1f)
-                )
+                // Box, non solo la mappa a piena larghezza: serve per sovrapporre il FAB "vai alla
+                // posizione teorica" DENTRO l'area mappa (sempre visibile, scopribile, mai coperto
+                // da una toolbar) invece che in coda a una Row che può restare fuori dalla porzione
+                // di schermo effettivamente inquadrata su alcuni layout esterni a questo schermo.
+                Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    MappaOsm(
+                        esito = esito,
+                        posizioneAttuale = posizioneAttuale,
+                        onMapReady = { mapViewRef = it },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    // Visibile solo quando esiste davvero una posizione teorica da raggiungere:
+                    // senza, sarebbe un pulsante morto (nessun posto dove andare). Il padding tiene
+                    // conto di `padding` già applicato alla Column esterna (barra di navigazione
+                    // delle sezioni compresa): il FAB resta quindi sempre dentro l'area mappa.
+                    if (posizioneAttuale != null) {
+                        FloatingActionButton(
+                            onClick = {
+                                mapViewRef?.let { mapView ->
+                                    mapView.controller.setZoom(ZOOM_POSIZIONE_ATTUALE)
+                                    mapView.controller.animateTo(GeoPoint(posizioneAttuale.lat, posizioneAttuale.lng))
+                                }
+                            },
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+                        ) {
+                            Icon(Icons.Filled.Schedule, contentDescription = "Vai alla posizione teorica")
+                        }
+                    }
+                }
             }
         }
     }
@@ -642,13 +680,19 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa, posizione
     }
 
     mapView.invalidate()
+    // L'inquadratura automatica include anche l'indicatore di posizione teorica quando presente,
+    // non solo le tappe fisse del percorso: su una tratta lunga (es. Milano-Roma) il punto
+    // interpolato può cadere ben fuori dai confini stretti attorno alle sole tappe, lasciando
+    // l'indicatore fuori campo anche se effettivamente disegnato - il FAB sopra resta comunque il
+    // modo esplicito per raggiungerlo, ma qui evitiamo che serva già alla prima apertura.
+    val puntiInquadratura = posizioneAttuale?.let { punti + GeoPoint(it.lat, it.lng) } ?: punti
     mapView.post {
         when {
-            punti.size == 1 -> {
+            puntiInquadratura.size == 1 -> {
                 mapView.controller.setZoom(15.0)
-                mapView.controller.setCenter(punti.first())
+                mapView.controller.setCenter(puntiInquadratura.first())
             }
-            punti.size >= 2 -> mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(punti), false, 128)
+            puntiInquadratura.size >= 2 -> mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(puntiInquadratura), false, 128)
         }
     }
 }
