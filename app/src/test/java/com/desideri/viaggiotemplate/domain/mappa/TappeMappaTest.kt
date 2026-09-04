@@ -24,8 +24,8 @@ class TappeMappaTest {
     private fun istante(giorno: Int, ora: Int, minuto: Int = 0) =
         ZonedDateTime.of(2026, 6, giorno, ora, minuto, 0, 0, zona)
 
-    private fun luogo(id: String, lat: Double? = 10.0, lng: Double? = 20.0) = LuogoCongelato(
-        luogoId = id, nome = id, indirizzo = null, latitudine = lat, longitudine = lng, colore = null, icona = null
+    private fun luogo(id: String, nome: String = id, lat: Double? = 10.0, lng: Double? = 20.0) = LuogoCongelato(
+        luogoId = id, nome = nome, indirizzo = null, latitudine = lat, longitudine = lng, colore = null, icona = null
     )
 
     private fun evento(id: Long, inizio: ZonedDateTime, fine: ZonedDateTime, titolo: String = "evento-$id") = EventoCreato(
@@ -157,5 +157,92 @@ class TappeMappaTest {
         )
 
         assertTrue(risultato is RisultatoPosizioneAttuale.NonDisponibile)
+    }
+
+    /**
+     * Riproduce esattamente lo scenario reale segnalato dall'utente (esecuzione Lugano/Ariccia del
+     * 04/09/2026): un'attesa a Milano Centrale tra l'arrivo di un treno (blocco 15:00-16:20) e la
+     * partenza del successivo (blocco 17:30-21:00), con "adesso" alle 17:01 - dentro il buco. Con
+     * lo stesso luogoId su entrambi i lati e coordinate presenti, deve comportarsi come il caso
+     * generico già coperto sopra: qui blocca in un test i numeri esatti del bug report.
+     */
+    @Test
+    fun `attesa a Milano Centrale con stesso luogoId e coordinate presenti mostra la posizione`() {
+        val milanoCentrale = luogo("milano-centrale", "Milano Centrale", lat = 45.4841, lng = 9.2039)
+        val trenoInArrivo = evento(2, istante(4, 15, 0), istante(4, 16, 20), titolo = "Lugano Stazione -> Milano Centrale")
+        val trenoInPartenza = evento(3, istante(4, 17, 30), istante(4, 21, 0), titolo = "Milano Centrale -> Roma Termini")
+        val adesso = istante(4, 17, 1)
+
+        val risultato = calcolaPosizioneAttuale(
+            listOf(trenoInArrivo, trenoInPartenza),
+            listOf(
+                posizione(2, luogo("lugano-stazione", "Lugano Stazione"), milanoCentrale),
+                posizione(3, milanoCentrale, luogo("roma-termini", "Roma Termini"))
+            ),
+            adesso
+        )
+
+        val trovata = risultato as? RisultatoPosizioneAttuale.Trovata
+        assertTrue("atteso Trovata, ottenuto $risultato", trovata != null)
+        val suLuogo = trovata!!.posizione as PosizioneAttualeEsecuzione.SuLuogo
+        assertEquals("milano-centrale", suLuogo.luogoId)
+    }
+
+    /**
+     * Stessa attesa a Milano Centrale, ma le due tratte referenziano due Luogo DIVERSI per lo
+     * stesso posto reale (id diversi, stesso nome) - il caso di una libreria Luoghi non
+     * deduplicata segnalato dall'utente come possibile causa: un confronto sul solo luogoId
+     * fallirebbe qui sempre, il fallback per nome lo recupera.
+     */
+    @Test
+    fun `attesa a Milano Centrale con due luogoId diversi ma stesso nome mostra comunque la posizione`() {
+        val milanoCentraleArrivo = luogo("luogo-creato-per-la-tratta-2", "Milano Centrale", lat = 45.4841, lng = 9.2039)
+        val milanoCentralePartenza = luogo("luogo-creato-per-la-tratta-3", "Milano Centrale", lat = 45.4841, lng = 9.2039)
+        val trenoInArrivo = evento(2, istante(4, 15, 0), istante(4, 16, 20))
+        val trenoInPartenza = evento(3, istante(4, 17, 30), istante(4, 21, 0))
+        val adesso = istante(4, 17, 1)
+
+        val risultato = calcolaPosizioneAttuale(
+            listOf(trenoInArrivo, trenoInPartenza),
+            listOf(
+                posizione(2, luogo("lugano-stazione", "Lugano Stazione"), milanoCentraleArrivo),
+                posizione(3, milanoCentralePartenza, luogo("roma-termini", "Roma Termini"))
+            ),
+            adesso
+        )
+
+        assertTrue("atteso Trovata, ottenuto $risultato", risultato is RisultatoPosizioneAttuale.Trovata)
+    }
+
+    /**
+     * Stessa attesa a Milano Centrale, stesso luogoId su entrambi i lati, ma senza coordinate (il
+     * caso storico dei luoghi di tipo stazione, compilati soprattutto per le tratte AUTO): l'esito
+     * è NonDisponibile con motivo esplicito "coordinate mancanti", non un buco silenzioso, e NON è
+     * "fuori finestra" (il viaggio è comunque in corso) - va quindi segnalato come banner in
+     * EsecuzioneMappaScreen, non solo loggato.
+     */
+    @Test
+    fun `attesa a Milano Centrale senza coordinate produce NonDisponibile con motivo esplicito, non fuori finestra`() {
+        val milanoCentraleSenzaCoordinate = luogo("milano-centrale", "Milano Centrale", lat = null, lng = null)
+        val trenoInArrivo = evento(2, istante(4, 15, 0), istante(4, 16, 20))
+        val trenoInPartenza = evento(3, istante(4, 17, 30), istante(4, 21, 0))
+        val adesso = istante(4, 17, 1)
+
+        val risultato = calcolaPosizioneAttuale(
+            listOf(trenoInArrivo, trenoInPartenza),
+            listOf(
+                posizione(2, luogo("lugano-stazione", "Lugano Stazione"), milanoCentraleSenzaCoordinate),
+                posizione(3, milanoCentraleSenzaCoordinate, luogo("roma-termini", "Roma Termini"))
+            ),
+            adesso
+        )
+
+        val nonDisponibile = risultato as? RisultatoPosizioneAttuale.NonDisponibile
+        assertTrue("atteso NonDisponibile, ottenuto $risultato", nonDisponibile != null)
+        assertTrue(
+            "motivo atteso su coordinate mancanti, ottenuto '${nonDisponibile!!.motivo}'",
+            nonDisponibile.motivo.contains("Coordinate mancanti")
+        )
+        assertTrue("non deve essere marcato come 'fuori finestra'", !nonDisponibile.fuoriFinestra)
     }
 }

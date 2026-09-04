@@ -324,9 +324,17 @@ fun EsecuzioneMappaScreen(
     // motivo), lasciando il registro silenzioso proprio nel caso più comune da diagnosticare
     // ("perché non vedo mai l'indicatore, nemmeno dopo un po'").
     var posizioneAttuale by remember { mutableStateOf<PosizioneAttualeEsecuzione?>(null) }
+    // Solo i motivi "non è normale" (dati mancanti/incoerenti mentre il viaggio è IN corso) vanno
+    // segnalati qui: "fuori finestra" è l'esito comune per la maggior parte della vita di
+    // un'esecuzione e comparirebbe come banner quasi sempre, diventando rumore invece che un
+    // avviso utile — vedi la doc di RisultatoPosizioneAttuale.NonDisponibile.fuoriFinestra.
+    var avvisoPosizioneAttuale by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(eventiOrdinati, posizioni, adesso) {
         val risultato = calcolaPosizioneAttuale(eventiOrdinati, posizioni, adesso)
         posizioneAttuale = (risultato as? RisultatoPosizioneAttuale.Trovata)?.posizione
+        avvisoPosizioneAttuale = (risultato as? RisultatoPosizioneAttuale.NonDisponibile)
+            ?.takeUnless { it.fuoriFinestra }
+            ?.motivo
         val finestraInizio = eventiOrdinati.firstOrNull()?.inizio
         val finestraFine = eventiOrdinati.lastOrNull()?.fine
         val esito = when (risultato) {
@@ -353,7 +361,8 @@ fun EsecuzioneMappaScreen(
         notaInformativa = "Le posizioni mostrate sono quelle salvate al momento della creazione: modifiche successive " +
             "a Luoghi o Tratte non le cambiano. Gli eventi creati prima dell'introduzione di questa mappa potrebbero " +
             "non avere alcuna posizione disponibile.",
-        posizioneAttuale = posizioneAttuale
+        posizioneAttuale = posizioneAttuale,
+        avvisoPosizioneAttuale = avvisoPosizioneAttuale
     )
 }
 
@@ -373,7 +382,8 @@ private fun MappaPercorsoScreen(
     padding: PaddingValues,
     messaggioNessunaTappa: String = MESSAGGIO_NESSUNA_TAPPA_LIBRERIA,
     notaInformativa: String? = null,
-    posizioneAttuale: PosizioneAttualeEsecuzione? = null
+    posizioneAttuale: PosizioneAttualeEsecuzione? = null,
+    avvisoPosizioneAttuale: String? = null
 ) {
     val context = LocalContext.current
     var risoluzione by remember { mutableStateOf<RisoluzioneMappa?>(null) }
@@ -417,6 +427,7 @@ private fun MappaPercorsoScreen(
                 if (esito.senzaDati > 0 || esito.geocodingFallito > 0) {
                     BannerMappa("Tappe non mostrate: " + descriviTappeEscluse(esito.senzaDati, esito.geocodingFallito) + ".")
                 }
+                avvisoPosizioneAttuale?.let { BannerMappa("Posizione teorica non mostrata: $it") }
                 MappaOsm(
                     esito = esito,
                     posizioneAttuale = posizioneAttuale,

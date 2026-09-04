@@ -269,11 +269,28 @@ sealed class PosizioneAttualeEsecuzione {
  * tracciabile, ecc.). Introdotto insieme al log diagnostico in EsecuzioneMappaScreen: senza un
  * motivo esplicito, un `null` da solo non basta a un utente per capire (o a chi lo assiste per
  * dirgli) se è normale (non è in viaggio in questo momento) o un problema sui dati.
+ *
+ * [NonDisponibile.fuoriFinestra] distingue l'esito "normale" (adesso è prima del primo evento o
+ * dopo l'ultimo — vero per la maggior parte della vita di un'esecuzione) da un vero problema sui
+ * dati mentre il viaggio È in corso (posizione/coordinate mancanti, luoghi non coincidenti): solo
+ * il secondo caso vale la pena segnalarlo con un banner in EsecuzioneMappaScreen, il primo no
+ * (comparirebbe quasi sempre, diventando rumore).
  */
 sealed class RisultatoPosizioneAttuale {
     data class Trovata(val posizione: PosizioneAttualeEsecuzione) : RisultatoPosizioneAttuale()
-    data class NonDisponibile(val motivo: String) : RisultatoPosizioneAttuale()
+    data class NonDisponibile(val motivo: String, val fuoriFinestra: Boolean = false) : RisultatoPosizioneAttuale()
 }
+
+/**
+ * Due luoghi congelati sono "lo stesso luogo" se coincide l'id — il caso normale, quando entrambe
+ * le tratte coinvolte referenziano lo stesso Luogo della libreria — oppure, come ripiego, se
+ * coincide il nome (spazi e maiuscole/minuscole ignorati): copre il caso di una libreria Luoghi
+ * non deduplicata, dove lo stesso posto reale (es. una stazione) è stato inserito due volte con id
+ * diversi in tratte diverse — un confronto sul solo id fallirebbe sempre in quel caso, anche
+ * quando per l'utente è ovviamente "lo stesso posto".
+ */
+private fun stessoLuogo(a: LuogoCongelato, b: LuogoCongelato): Boolean =
+    a.luogoId == b.luogoId || a.nome.trim().equals(b.nome.trim(), ignoreCase = true)
 
 /**
  * Calcola dove ci si troverebbe ADESSO lungo l'esecuzione, in base ai soli orari pianificati (reali,
@@ -313,7 +330,8 @@ fun calcolaPosizioneAttuale(
 ): RisultatoPosizioneAttuale {
     val posizioniPerId = posizioni.associateBy { it.calendarEventId }
 
-    fun nonDisponibile(motivo: String) = RisultatoPosizioneAttuale.NonDisponibile(motivo)
+    fun nonDisponibile(motivo: String, fuoriFinestra: Boolean = false) =
+        RisultatoPosizioneAttuale.NonDisponibile(motivo, fuoriFinestra)
 
     eventiOrdinati.forEachIndexed { indice, evento ->
         if (!adesso.isBefore(evento.inizio) && !adesso.isAfter(evento.fine)) {
@@ -323,7 +341,7 @@ fun calcolaPosizioneAttuale(
                 ?: return nonDisponibile("Partenza mancante per l'evento in corso (${evento.titolo}).")
             val arrivo = posizione.arrivo
                 ?: return nonDisponibile("Arrivo mancante per l'evento in corso (${evento.titolo}).")
-            if (partenza.luogoId == arrivo.luogoId) {
+            if (stessoLuogo(partenza, arrivo)) {
                 val lat = arrivo.latitudine
                 val lng = arrivo.longitudine
                 return if (lat != null && lng != null) {
@@ -356,7 +374,7 @@ fun calcolaPosizioneAttuale(
                 ?: return nonDisponibile("Nessuna posizione di arrivo per l'evento appena concluso (${evento.titolo}).")
             val partenzaSuccessiva = posizioniPerId[successivo.eventoId]?.partenza
                 ?: return nonDisponibile("Nessuna posizione di partenza per il prossimo evento (${successivo.titolo}).")
-            if (arrivo.luogoId != partenzaSuccessiva.luogoId) {
+            if (!stessoLuogo(arrivo, partenzaSuccessiva)) {
                 return nonDisponibile("Attesa tra luoghi diversi: l'evento intermedio non è tracciabile con certezza.")
             }
             val lat = arrivo.latitudine
@@ -368,5 +386,8 @@ fun calcolaPosizioneAttuale(
             }
         }
     }
-    return nonDisponibile("Fuori dalla finestra temporale dell'esecuzione (prima del primo evento o dopo l'ultimo).")
+    return nonDisponibile(
+        "Fuori dalla finestra temporale dell'esecuzione (prima del primo evento o dopo l'ultimo).",
+        fuoriFinestra = true
+    )
 }
