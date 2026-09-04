@@ -293,24 +293,20 @@ private fun stessoLuogo(a: LuogoCongelato, b: LuogoCongelato): Boolean =
     a.luogoId == b.luogoId || a.nome.trim().equals(b.nome.trim(), ignoreCase = true)
 
 /**
- * Coordinate per un luogo congelato: quelle congelate se presenti, altrimenti (diagnosi
- * confermata: un'esecuzione con posizioni congelate valide su nome/id ma senza coordinate,
- * storicamente il caso comune per stazioni/aeroporti compilati soprattutto per le tratte AUTO) un
- * ripiego sul Luogo ATTUALE in [luoghiLive] — prima per id, poi per nome SOLO se univoco tra i
- * Luoghi attuali: un nome duplicato renderebbe la scelta arbitraria, e l'indicatore deve restare
- * corretto o assente, mai una posizione indovinata (da cui "solo se univoco", niente `firstOrNull`).
+ * Coordinate per un luogo congelato, da [coordinatePerLuogoId] — le stesse identiche coordinate
+ * RISOLTE che disegnano i pin sulla mappa (vedi [RisoluzioneMappa.tappe] in TemplateMappaScreen.kt),
+ * non i soli campi congelati grezzi. Diagnosi confermata dal registro attività dell'utente: una
+ * posizione congelata può avere coordinate null ma un indirizzo che la mappa geolocalizza con
+ * successo via [android.location.Geocoder] a runtime (es. "Milano stazione centrale" - i pin
+ * compaiono regolarmente). Un tentativo precedente di questo fix risaliva ai Luoghi live per le
+ * coordinate mancanti: sbagliato, perché quei Luoghi hanno spesso anch'essi solo un indirizzo, non
+ * coordinate dirette - il vero fallback che funziona è sempre stato il geocoding già fatto dalla
+ * mappa, mai duplicato qui. Passare la mappa RISOLTA (qualunque sia la fonte: congelate, o
+ * geocoding) invece di ricalcolare la fonte è l'unico modo per cui calcolo e pin non possano
+ * divergere per costruzione.
  */
-private fun risolviCoordinate(congelato: LuogoCongelato, luoghiLive: List<Luogo>): Pair<Double, Double>? {
-    val lat = congelato.latitudine
-    val lng = congelato.longitudine
-    if (lat != null && lng != null) return lat to lng
-
-    val live = luoghiLive.find { it.id == congelato.luogoId }
-        ?: luoghiLive.filter { it.nome.trim().equals(congelato.nome.trim(), ignoreCase = true) }.singleOrNull()
-    val latLive = live?.latitudine
-    val lngLive = live?.longitudine
-    return if (latLive != null && lngLive != null) latLive to lngLive else null
-}
+private fun risolviCoordinate(congelato: LuogoCongelato, coordinatePerLuogoId: Map<String, Pair<Double, Double>>): Pair<Double, Double>? =
+    coordinatePerLuogoId[congelato.luogoId]
 
 /**
  * Calcola dove ci si troverebbe ADESSO lungo l'esecuzione, in base ai soli orari pianificati (reali,
@@ -325,7 +321,12 @@ private fun risolviCoordinate(congelato: LuogoCongelato, luoghiLive: List<Luogo>
  * `Instant.ofEpochMilli(...)` in [com.desideri.viaggiotemplate.domain.calendar.CalendarWriter.eventiPerId],
  * quindi un evento con la stessa fascia oraria ma su un giorno diverso NON può mai far scattare
  * questi confronti per errore: `isBefore`/`isAfter` su due `ZonedDateTime` confrontano l'istante
- * intero, non la sola ora locale.
+ * intero, non la sola ora locale. Questo vale anche quando [adesso] e [EventoCreato.inizio]/`fine`
+ * portano fusi orari DIVERSI (es. l'uno "Europe/Zurich" da `EVENT_TIMEZONE`, l'altro "Europe/Rome"
+ * da `ZonedDateTime.now()` di sistema): la Javadoc di `ChronoZonedDateTime.isBefore`/`isAfter` è
+ * esplicita, "This method only compares the instant of the date-time" - equivalente a confrontare
+ * `.toInstant()` su entrambi i lati, indipendente dal fuso attaccato a ciascuno. Nessun bug
+ * latente qui, verificato esplicitamente con un test a fusi diversi.
  *
  * Ogni evento è considerato contro l'intera [eventiOrdinati] (non filtrata per posizione nota, a
  * differenza di [risolviPercorsoEsecuzione]): se l'evento in corso ORA non ha una posizione
@@ -342,19 +343,19 @@ private fun risolviCoordinate(congelato: LuogoCongelato, luoghiLive: List<Luogo>
  * indovinare.
  *
  * [eventiOrdinati] deve essere ordinato per orario di inizio reale, come per [risolviPercorsoEsecuzione].
+ *
+ * [coordinatePerLuogoId] deve essere la STESSA mappa risolta usata per disegnare i pin (vedi
+ * [risolviCoordinate]): calcolata da chi chiama a partire da [RisoluzioneMappa.tappe] in
+ * TemplateMappaScreen.kt, quindi disponibile solo dopo che l'eventuale geocoding è completato -
+ * il chiamante deve ricalcolare quando questa mappa cambia, non solo quando cambia [adesso], o
+ * l'indicatore resterà "non disponibile" fino al prossimo ricalcolo periodico anche quando le
+ * coordinate sono già pronte. Default vuoto per i chiamanti (inclusi i test) senza questa mappa.
  */
 fun calcolaPosizioneAttuale(
     eventiOrdinati: List<EventoCreato>,
     posizioni: List<PosizioneEventoCreato>,
     adesso: ZonedDateTime,
-    // Diagnosi confermata (segnalazione utente, 04/09/2026): un'esecuzione può avere posizioni
-    // congelate valide (nome/id, il che spiega perché i pin sulla mappa base funzionano) ma senza
-    // coordinate, perché il Luogo non le aveva al momento della creazione - non un problema di
-    // esecuzioni precedenti alla migrazione 16->17 (in quel caso partenza/arrivo sarebbero interi
-    // null insieme, svuotando anche la mappa base, il che non succede). luoghiLive alimenta il
-    // ripiego di risolviCoordinate: default vuoto per i chiamanti (inclusi i test) che non hanno
-    // accesso ai Luoghi live, con lo stesso comportamento di prima (nessun ripiego).
-    luoghiLive: List<Luogo> = emptyList()
+    coordinatePerLuogoId: Map<String, Pair<Double, Double>> = emptyMap()
 ): RisultatoPosizioneAttuale {
     val posizioniPerId = posizioni.associateBy { it.calendarEventId }
 
@@ -370,15 +371,15 @@ fun calcolaPosizioneAttuale(
             val arrivo = posizione.arrivo
                 ?: return nonDisponibile("Arrivo mancante per l'evento in corso (${evento.titolo}).")
             if (stessoLuogo(partenza, arrivo)) {
-                val coordinate = risolviCoordinate(arrivo, luoghiLive)
+                val coordinate = risolviCoordinate(arrivo, coordinatePerLuogoId)
                 return if (coordinate != null) {
                     RisultatoPosizioneAttuale.Trovata(PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, coordinate.first, coordinate.second))
                 } else {
                     nonDisponibile("Coordinate mancanti per il luogo dell'evento in corso (${arrivo.nome}).")
                 }
             }
-            val coordinatePartenza = risolviCoordinate(partenza, luoghiLive)
-            val coordinateArrivo = risolviCoordinate(arrivo, luoghiLive)
+            val coordinatePartenza = risolviCoordinate(partenza, coordinatePerLuogoId)
+            val coordinateArrivo = risolviCoordinate(arrivo, coordinatePerLuogoId)
             if (coordinatePartenza == null || coordinateArrivo == null) {
                 // Nomina esplicitamente QUALE dei due estremi manca di coordinate (può essere uno
                 // solo, es. Roma Termini senza coordinate mentre Milano Centrale le ha): un motivo
@@ -410,7 +411,7 @@ fun calcolaPosizioneAttuale(
             if (!stessoLuogo(arrivo, partenzaSuccessiva)) {
                 return nonDisponibile("Attesa tra luoghi diversi: l'evento intermedio non è tracciabile con certezza.")
             }
-            val coordinate = risolviCoordinate(arrivo, luoghiLive)
+            val coordinate = risolviCoordinate(arrivo, coordinatePerLuogoId)
             return if (coordinate != null) {
                 RisultatoPosizioneAttuale.Trovata(PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, coordinate.first, coordinate.second))
             } else {

@@ -185,7 +185,6 @@ fun EventiCreatiScreen() {
                 titolo = "Mappa" + (stato.esecuzioneSelezionata?.templateNome?.let { " ($it)" } ?: ""),
                 eventiOrdinati = stato.eventiSelezionati,
                 posizioni = stato.posizioni,
-                luoghiLive = stato.luoghiLive,
                 onChiudi = { mostraMappa = false },
                 padding = padding
             )

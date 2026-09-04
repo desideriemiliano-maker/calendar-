@@ -13,9 +13,7 @@ import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
 import com.desideri.viaggiotemplate.domain.calendar.notaSincronizzazione
 import com.desideri.viaggiotemplate.domain.calendar.passata
 import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
-import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.repository.EsecuzioneCreataRepository
-import com.desideri.viaggiotemplate.repository.LuogoRepository
 import com.desideri.viaggiotemplate.ui.AppContainer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,12 +31,6 @@ data class StatoEventiCreati(
     val eventIdsSalvati: List<Long> = emptyList(),
     /** Posizioni congelate degli eventi selezionati (vedi PosizioneEventoCreato), per la vista mappa. */
     val posizioni: List<PosizioneEventoCreato> = emptyList(),
-    /**
-     * Luoghi ATTUALI della libreria (non quelli congelati): usati solo come ripiego in
-     * calcolaPosizioneAttuale quando una posizione congelata manca di coordinate (luogo che al
-     * momento della creazione non le aveva ancora) - vedi risolviCoordinate in TappeMappa.kt.
-     */
-    val luoghiLive: List<Luogo> = emptyList(),
     val caricamentoEventi: Boolean = false,
     val messaggio: String? = null,
     /** Valorizzato quando l'eliminazione dal calendario non ha rimosso tutti gli eventi richiesti: la registrazione locale NON viene toccata in quel caso, per permettere di riprovare. */
@@ -67,8 +59,7 @@ data class StatoEventiCreati(
 }
 
 class EventiCreatiViewModel(
-    private val repository: EsecuzioneCreataRepository,
-    private val luogoRepository: LuogoRepository
+    private val repository: EsecuzioneCreataRepository
 ) : ViewModel() {
 
     private val _stato = MutableStateFlow(StatoEventiCreati())
@@ -78,11 +69,6 @@ class EventiCreatiViewModel(
         viewModelScope.launch {
             repository.osservaTutte().collect { lista ->
                 _stato.value = _stato.value.copy(esecuzioni = lista)
-            }
-        }
-        viewModelScope.launch {
-            luogoRepository.osservaLuoghi().collect { lista ->
-                _stato.value = _stato.value.copy(luoghiLive = lista)
             }
         }
     }
@@ -188,6 +174,6 @@ object EventiCreatiViewModelFactory {
     fun get(): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            EventiCreatiViewModel(AppContainer.esecuzioneCreataRepository, AppContainer.luogoRepository) as T
+            EventiCreatiViewModel(AppContainer.esecuzioneCreataRepository) as T
     }
 }

@@ -3,11 +3,11 @@ package com.desideri.viaggiotemplate.domain.mappa
 import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.LuogoCongelato
 import com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato
-import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 
@@ -17,6 +17,13 @@ import java.time.ZonedDateTime
  * funzione sia corretto (in particolare: mai un falso positivo tra istanti sulla stessa fascia
  * oraria ma giorni diversi, l'ipotesi di bug più temuta) più i casi limite già documentati nel
  * commento della funzione stessa (fuori finestra, coordinate mancanti).
+ *
+ * [mappaCoordinate] simula [RisoluzioneMappa.tappe] (le coordinate RISOLTE che disegnano i pin,
+ * comprensive dell'eventuale fallback di geocoding - vedi TemplateMappaScreen.kt): deriva le
+ * coordinate direttamente dai campi congelati dei [LuogoCongelato] passati, escludendo quelli
+ * senza coordinate (esattamente come farebbe risolviMappa se il geocoding NON fosse disponibile
+ * o non fosse ancora completato). I test che vogliono simulare un geocoding riuscito nonostante
+ * coordinate congelate assenti costruiscono la mappa a mano invece di usare questo helper.
  */
 class TappeMappaTest {
 
@@ -39,9 +46,14 @@ class TappeMappaTest {
         arrivo: LuogoCongelato?
     ) = PosizioneEventoCreato(calendarEventId = id, tipoTratta = TipoTratta.AUTO, partenza = partenza, arrivo = arrivo)
 
-    private fun luogoLive(id: String, nome: String = id, lat: Double? = 10.0, lng: Double? = 20.0) = Luogo(
-        id = id, nome = nome, indirizzo = null, latitudine = lat, longitudine = lng, colore = null, icona = null
-    )
+    private fun mappaCoordinate(posizioni: List<PosizioneEventoCreato>): Map<String, Pair<Double, Double>> =
+        posizioni.flatMap { listOfNotNull(it.partenza, it.arrivo) }
+            .mapNotNull { luogo ->
+                val lat = luogo.latitudine
+                val lng = luogo.longitudine
+                if (lat != null && lng != null) luogo.luogoId to (lat to lng) else null
+            }
+            .toMap()
 
     @Test
     fun `adesso a meta di una tratta interpola linearmente tra partenza e arrivo`() {
@@ -49,8 +61,9 @@ class TappeMappaTest {
         val arrivo = luogo("B", lat = 10.0, lng = 20.0)
         val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0))
         val adesso = istante(10, 9, 30) // esattamente a metà dell'ora di durata
+        val posizioni = listOf(posizione(1, partenza, arrivo))
 
-        val risultato = calcolaPosizioneAttuale(listOf(ev), listOf(posizione(1, partenza, arrivo)), adesso)
+        val risultato = calcolaPosizioneAttuale(listOf(ev), posizioni, adesso, mappaCoordinate(posizioni))
 
         val trovata = risultato as? RisultatoPosizioneAttuale.Trovata
         assertTrue("atteso Trovata, ottenuto $risultato", trovata != null)
@@ -64,8 +77,7 @@ class TappeMappaTest {
      * screenshot delle 18:14): adesso è DENTRO il terzo blocco (17:30-21:00, Milano Centrale ->
      * Roma Termini), non più in un'attesa - il ramo da verificare è l'interpolazione, non quello
      * dell'attesa già coperto sopra. Conferma che la funzione produce comunque una posizione
-     * corretta: il problema riportato ("non vedo indicatore né pulsante") non era qui, ma
-     * nell'inquadratura della mappa e nella scopribilità del pulsante (vedi TemplateMappaScreen).
+     * corretta: il problema riportato ("non vedo indicatore né pulsante") non era qui.
      */
     @Test
     fun `adesso dentro il terzo blocco (17-30 a 21-00, verificato alle 18-14) interpola correttamente`() {
@@ -73,8 +85,9 @@ class TappeMappaTest {
         val arrivo = luogo("roma-termini", "Roma Termini", lat = 100.0, lng = 200.0)
         val ev = evento(3, istante(4, 17, 30), istante(4, 21, 0), titolo = "Milano Centrale -> Roma Termini")
         val adesso = istante(4, 18, 14)
+        val posizioni = listOf(posizione(3, partenza, arrivo))
 
-        val risultato = calcolaPosizioneAttuale(listOf(ev), listOf(posizione(3, partenza, arrivo)), adesso)
+        val risultato = calcolaPosizioneAttuale(listOf(ev), posizioni, adesso, mappaCoordinate(posizioni))
 
         val trovata = risultato as? RisultatoPosizioneAttuale.Trovata
         assertTrue("atteso Trovata, ottenuto $risultato", trovata != null)
@@ -85,10 +98,10 @@ class TappeMappaTest {
     }
 
     /**
-     * Stesso scenario, ma con Roma Termini SENZA coordinate (Milano Centrale le ha, come conferma
-     * il suo marker visibile nello screenshot dell'utente): il motivo deve nominare esplicitamente
-     * "Roma Termini" - non un generico "partenza o arrivo" che lascerebbe l'utente a controllare
-     * entrambi i luoghi a mano per capire quale correggere in Luoghi.
+     * Stesso scenario, ma con Roma Termini SENZA coordinate né congelate né risolte (nessun
+     * geocoding riuscito nemmeno lui, dato che mappaCoordinate esclude i luoghi senza coordinate
+     * congelate): il motivo deve nominare esplicitamente "Roma Termini" - non un generico
+     * "partenza o arrivo" che lascerebbe l'utente a controllare entrambi i luoghi a mano.
      */
     @Test
     fun `Roma Termini senza coordinate produce un motivo che lo nomina esplicitamente`() {
@@ -96,12 +109,9 @@ class TappeMappaTest {
         val romaTerminiSenzaCoordinate = luogo("roma-termini", "Roma Termini", lat = null, lng = null)
         val ev = evento(3, istante(4, 17, 30), istante(4, 21, 0), titolo = "Milano Centrale -> Roma Termini")
         val adesso = istante(4, 18, 14)
+        val posizioni = listOf(posizione(3, milanoCentrale, romaTerminiSenzaCoordinate))
 
-        val risultato = calcolaPosizioneAttuale(
-            listOf(ev),
-            listOf(posizione(3, milanoCentrale, romaTerminiSenzaCoordinate)),
-            adesso
-        )
+        val risultato = calcolaPosizioneAttuale(listOf(ev), posizioni, adesso, mappaCoordinate(posizioni))
 
         val nonDisponibile = risultato as? RisultatoPosizioneAttuale.NonDisponibile
         assertTrue("atteso NonDisponibile, ottenuto $risultato", nonDisponibile != null)
@@ -123,12 +133,9 @@ class TappeMappaTest {
         val ev1 = evento(1, istante(10, 9, 0), istante(10, 10, 0))
         val ev2 = evento(2, istante(10, 10, 30), istante(10, 11, 0))
         val adesso = istante(10, 10, 15) // dentro l'attesa tra fine ev1 e inizio ev2
+        val posizioni = listOf(posizione(1, a, b), posizione(2, b, a))
 
-        val risultato = calcolaPosizioneAttuale(
-            listOf(ev1, ev2),
-            listOf(posizione(1, a, b), posizione(2, b, a)),
-            adesso
-        )
+        val risultato = calcolaPosizioneAttuale(listOf(ev1, ev2), posizioni, adesso, mappaCoordinate(posizioni))
 
         val trovata = risultato as? RisultatoPosizioneAttuale.Trovata
         assertTrue("atteso Trovata, ottenuto $risultato", trovata != null)
@@ -142,8 +149,9 @@ class TappeMappaTest {
     fun `adesso prima del primo evento non da' nessuna posizione`() {
         val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0))
         val adesso = istante(10, 8, 0)
+        val posizioni = listOf(posizione(1, luogo("A"), luogo("B")))
 
-        val risultato = calcolaPosizioneAttuale(listOf(ev), listOf(posizione(1, luogo("A"), luogo("B"))), adesso)
+        val risultato = calcolaPosizioneAttuale(listOf(ev), posizioni, adesso, mappaCoordinate(posizioni))
 
         assertTrue(risultato is RisultatoPosizioneAttuale.NonDisponibile)
     }
@@ -152,8 +160,9 @@ class TappeMappaTest {
     fun `adesso dopo l'ultimo evento non da' nessuna posizione`() {
         val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0))
         val adesso = istante(10, 12, 0)
+        val posizioni = listOf(posizione(1, luogo("A"), luogo("B")))
 
-        val risultato = calcolaPosizioneAttuale(listOf(ev), listOf(posizione(1, luogo("A"), luogo("B"))), adesso)
+        val risultato = calcolaPosizioneAttuale(listOf(ev), posizioni, adesso, mappaCoordinate(posizioni))
 
         assertTrue(risultato is RisultatoPosizioneAttuale.NonDisponibile)
     }
@@ -168,8 +177,9 @@ class TappeMappaTest {
     fun `evento con la stessa fascia oraria ma di un altro giorno non genera un falso positivo`() {
         val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0)) // 10 giugno, 09:00-10:00
         val adesso = istante(11, 9, 30) // 11 giugno, stessa fascia oraria (09:30)
+        val posizioni = listOf(posizione(1, luogo("A"), luogo("B")))
 
-        val risultato = calcolaPosizioneAttuale(listOf(ev), listOf(posizione(1, luogo("A"), luogo("B"))), adesso)
+        val risultato = calcolaPosizioneAttuale(listOf(ev), posizioni, adesso, mappaCoordinate(posizioni))
 
         assertTrue(
             "atteso NonDisponibile (nessun evento copre 'adesso'), ottenuto $risultato",
@@ -183,12 +193,9 @@ class TappeMappaTest {
         val arrivo = luogo("B")
         val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0))
         val adesso = istante(10, 9, 30)
+        val posizioni = listOf(posizione(1, partenzaSenzaCoordinate, arrivo))
 
-        val risultato = calcolaPosizioneAttuale(
-            listOf(ev),
-            listOf(posizione(1, partenzaSenzaCoordinate, arrivo)),
-            adesso
-        )
+        val risultato = calcolaPosizioneAttuale(listOf(ev), posizioni, adesso, mappaCoordinate(posizioni))
 
         assertTrue(risultato is RisultatoPosizioneAttuale.NonDisponibile)
     }
@@ -212,24 +219,48 @@ class TappeMappaTest {
 
         // Arrivo di ev1 e partenza di ev2 NON coincidono (luoghi "B" e "C"): un evento intermedio
         // non tracciabile è stato "saltato" nel mezzo, non c'è certezza su dove ci si trovi.
-        val risultato = calcolaPosizioneAttuale(
-            listOf(ev1, ev2),
-            listOf(posizione(1, luogo("A"), luogo("B")), posizione(2, luogo("C"), luogo("D"))),
-            adesso
-        )
+        val posizioni = listOf(posizione(1, luogo("A"), luogo("B")), posizione(2, luogo("C"), luogo("D")))
+
+        val risultato = calcolaPosizioneAttuale(listOf(ev1, ev2), posizioni, adesso, mappaCoordinate(posizioni))
 
         assertTrue(risultato is RisultatoPosizioneAttuale.NonDisponibile)
     }
 
     /**
-     * Diagnosi confermata dall'utente (marker di fallback debug sempre mostrato, mai quello vero):
-     * un'esecuzione può avere posizioni congelate valide su nome/id (i pin della mappa base
-     * funzionano) ma senza coordinate, perché il Luogo non le aveva ancora al momento della
-     * creazione. Con lo stesso id anche nella libreria Luoghi attuale, il ripiego su luoghiLive
-     * deve recuperare le coordinate e produrre comunque una posizione.
+     * Causa reale confermata dal registro attività dell'utente: le coordinate congelate mancano,
+     * ma la mappa le risolve comunque a runtime via geocoding dell'indirizzo (da cui i pin visibili
+     * negli screenshot). Il calcolo deve usare esattamente quella mappa risolta
+     * (coordinatePerLuogoId, costruita dal chiamante da RisoluzioneMappa.tappe), non i soli campi
+     * congelati: qui simula il geocoding avvenuto con successo, e il risultato deve essere Trovata.
      */
     @Test
-    fun `coordinate congelate mancanti vengono recuperate dal Luogo attuale con lo stesso id`() {
+    fun `coordinate congelate mancanti ma presenti in coordinatePerLuogoId (geocoding) producono una posizione`() {
+        val partenza = luogo("A", lat = 0.0, lng = 0.0)
+        val arrivoSenzaCoordinateCongelate = luogo("milano-centrale", "Milano Centrale", lat = null, lng = null)
+        val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0))
+        val adesso = istante(10, 9, 30)
+
+        val risultato = calcolaPosizioneAttuale(
+            listOf(ev),
+            listOf(posizione(1, partenza, arrivoSenzaCoordinateCongelate)),
+            adesso,
+            coordinatePerLuogoId = mapOf(
+                "A" to (0.0 to 0.0),
+                "milano-centrale" to (45.4841 to 9.2039) // "risolto" da risolviMappa via Geocoder
+            )
+        )
+
+        assertTrue("atteso Trovata, ottenuto $risultato", risultato is RisultatoPosizioneAttuale.Trovata)
+    }
+
+    /**
+     * Stesso caso, ma il geocoding NON è (ancora) presente in coordinatePerLuogoId - es. non
+     * ancora completato, o fallito anche lui: l'esito resta NonDisponibile, esattamente come prima
+     * di questo fix. Copre anche il caso "calcolo eseguito prima che il geocoding completi",
+     * segnalato dall'utente: il chiamante deve limitarsi a passare la mappa che ha in quel momento.
+     */
+    @Test
+    fun `coordinate assenti sia congelate sia in coordinatePerLuogoId restano NonDisponibile`() {
         val partenza = luogo("A", lat = 0.0, lng = 0.0)
         val arrivoSenzaCoordinate = luogo("milano-centrale", "Milano Centrale", lat = null, lng = null)
         val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0))
@@ -239,58 +270,46 @@ class TappeMappaTest {
             listOf(ev),
             listOf(posizione(1, partenza, arrivoSenzaCoordinate)),
             adesso,
-            luoghiLive = listOf(luogoLive("milano-centrale", "Milano Centrale", lat = 45.4841, lng = 9.2039))
-        )
-
-        assertTrue("atteso Trovata, ottenuto $risultato", risultato is RisultatoPosizioneAttuale.Trovata)
-    }
-
-    /**
-     * Stesso caso, ma il Luogo congelato ha un id che non esiste più nella libreria attuale (es.
-     * eliminato e poi ricreato): il ripiego prova per nome, e deve funzionare quando il nome è
-     * univoco tra i Luoghi attuali.
-     */
-    @Test
-    fun `coordinate congelate mancanti vengono recuperate dal Luogo attuale con lo stesso nome se l'id non esiste piu`() {
-        val partenza = luogo("A", lat = 0.0, lng = 0.0)
-        val arrivoSenzaCoordinate = luogo("id-vecchio-eliminato", "Milano Centrale", lat = null, lng = null)
-        val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0))
-        val adesso = istante(10, 9, 30)
-
-        val risultato = calcolaPosizioneAttuale(
-            listOf(ev),
-            listOf(posizione(1, partenza, arrivoSenzaCoordinate)),
-            adesso,
-            luoghiLive = listOf(luogoLive("id-nuovo", "Milano Centrale", lat = 45.4841, lng = 9.2039))
-        )
-
-        assertTrue("atteso Trovata, ottenuto $risultato", risultato is RisultatoPosizioneAttuale.Trovata)
-    }
-
-    /**
-     * Il ripiego per nome NON deve mai indovinare: se due Luoghi attuali condividono lo stesso
-     * nome, scegliere uno a caso produrrebbe potenzialmente una posizione SBAGLIATA - peggio che
-     * nessuna posizione. In questo caso l'esito resta NonDisponibile, esattamente come senza
-     * ripiego.
-     */
-    @Test
-    fun `il ripiego per nome non si applica se il nome e' ambiguo tra piu' Luoghi attuali`() {
-        val partenza = luogo("A", lat = 0.0, lng = 0.0)
-        val arrivoSenzaCoordinate = luogo("id-vecchio", "Milano Centrale", lat = null, lng = null)
-        val ev = evento(1, istante(10, 9, 0), istante(10, 10, 0))
-        val adesso = istante(10, 9, 30)
-
-        val risultato = calcolaPosizioneAttuale(
-            listOf(ev),
-            listOf(posizione(1, partenza, arrivoSenzaCoordinate)),
-            adesso,
-            luoghiLive = listOf(
-                luogoLive("id-1", "Milano Centrale", lat = 45.4841, lng = 9.2039),
-                luogoLive("id-2", "Milano Centrale", lat = 45.0, lng = 9.0)
-            )
+            coordinatePerLuogoId = mapOf("A" to (0.0 to 0.0)) // "milano-centrale" non ancora risolto
         )
 
         assertTrue("atteso NonDisponibile, ottenuto $risultato", risultato is RisultatoPosizioneAttuale.NonDisponibile)
+    }
+
+    /**
+     * Verifica esplicita richiesta dall'utente: il confronto temporale resta corretto anche
+     * quando "adesso" e l'evento portano ZonedDateTime in FUSI ORARI DIVERSI (nel registro reale:
+     * la finestra dell'esecuzione in Europe/Zurich, "adesso" in Europe/Rome - stesso offset oggi,
+     * ma non deve essere per quello che il confronto funziona). isBefore/isAfter confrontano
+     * sempre l'istante assoluto, mai l'ora locale: un evento a Berlino (UTC+2 in estate) e
+     * "adesso" ad Auckland (UTC+12) che punta ALLO STESSO istante deve comunque risultare "in
+     * corso", nonostante ore locali completamente diverse.
+     */
+    @Test
+    fun `il confronto temporale e' corretto anche tra fusi orari diversi per lo stesso istante`() {
+        val zonaBerlino = ZoneId.of("Europe/Berlin")
+        val zonaAuckland = ZoneId.of("Pacific/Auckland")
+        val inizioBerlino = ZonedDateTime.of(2026, 6, 10, 9, 0, 0, 0, zonaBerlino)
+        val fineBerlino = ZonedDateTime.of(2026, 6, 10, 10, 0, 0, 0, zonaBerlino)
+        // Stesso istante di inizioBerlino, espresso in Pacific/Auckland: +30 minuti da quell'istante,
+        // cioè esattamente a metà tratta - qualunque sia l'ora locale mostrata in quel fuso.
+        val adessoAuckland = inizioBerlino.withZoneSameInstant(zonaAuckland).plusMinutes(30)
+
+        val ev = EventoCreato(
+            eventoId = 1, inizio = inizioBerlino, fine = fineBerlino,
+            titolo = "evento-berlino", descrizione = "", colore = null, indirizzoNavigazione = null
+        )
+        val partenza = luogo("A", lat = 0.0, lng = 0.0)
+        val arrivo = luogo("B", lat = 10.0, lng = 20.0)
+        val posizioni = listOf(posizione(1, partenza, arrivo))
+
+        val risultato = calcolaPosizioneAttuale(listOf(ev), posizioni, adessoAuckland, mappaCoordinate(posizioni))
+
+        val trovata = risultato as? RisultatoPosizioneAttuale.Trovata
+        assertTrue("atteso Trovata (stesso istante, fusi diversi), ottenuto $risultato", trovata != null)
+        val posizioneAttuale = trovata!!.posizione as PosizioneAttualeEsecuzione.SuSegmento
+        assertEquals(5.0, posizioneAttuale.lat, 0.0001) // a metà tratta, come da +30 minuti su un'ora
+        assertEquals(10.0, posizioneAttuale.lng, 0.0001)
     }
 
     /**
@@ -306,15 +325,12 @@ class TappeMappaTest {
         val trenoInArrivo = evento(2, istante(4, 15, 0), istante(4, 16, 20), titolo = "Lugano Stazione -> Milano Centrale")
         val trenoInPartenza = evento(3, istante(4, 17, 30), istante(4, 21, 0), titolo = "Milano Centrale -> Roma Termini")
         val adesso = istante(4, 17, 1)
-
-        val risultato = calcolaPosizioneAttuale(
-            listOf(trenoInArrivo, trenoInPartenza),
-            listOf(
-                posizione(2, luogo("lugano-stazione", "Lugano Stazione"), milanoCentrale),
-                posizione(3, milanoCentrale, luogo("roma-termini", "Roma Termini"))
-            ),
-            adesso
+        val posizioni = listOf(
+            posizione(2, luogo("lugano-stazione", "Lugano Stazione"), milanoCentrale),
+            posizione(3, milanoCentrale, luogo("roma-termini", "Roma Termini"))
         )
+
+        val risultato = calcolaPosizioneAttuale(listOf(trenoInArrivo, trenoInPartenza), posizioni, adesso, mappaCoordinate(posizioni))
 
         val trovata = risultato as? RisultatoPosizioneAttuale.Trovata
         assertTrue("atteso Trovata, ottenuto $risultato", trovata != null)
@@ -335,25 +351,21 @@ class TappeMappaTest {
         val trenoInArrivo = evento(2, istante(4, 15, 0), istante(4, 16, 20))
         val trenoInPartenza = evento(3, istante(4, 17, 30), istante(4, 21, 0))
         val adesso = istante(4, 17, 1)
-
-        val risultato = calcolaPosizioneAttuale(
-            listOf(trenoInArrivo, trenoInPartenza),
-            listOf(
-                posizione(2, luogo("lugano-stazione", "Lugano Stazione"), milanoCentraleArrivo),
-                posizione(3, milanoCentralePartenza, luogo("roma-termini", "Roma Termini"))
-            ),
-            adesso
+        val posizioni = listOf(
+            posizione(2, luogo("lugano-stazione", "Lugano Stazione"), milanoCentraleArrivo),
+            posizione(3, milanoCentralePartenza, luogo("roma-termini", "Roma Termini"))
         )
+
+        val risultato = calcolaPosizioneAttuale(listOf(trenoInArrivo, trenoInPartenza), posizioni, adesso, mappaCoordinate(posizioni))
 
         assertTrue("atteso Trovata, ottenuto $risultato", risultato is RisultatoPosizioneAttuale.Trovata)
     }
 
     /**
-     * Stessa attesa a Milano Centrale, stesso luogoId su entrambi i lati, ma senza coordinate (il
-     * caso storico dei luoghi di tipo stazione, compilati soprattutto per le tratte AUTO): l'esito
-     * è NonDisponibile con motivo esplicito "coordinate mancanti", non un buco silenzioso, e NON è
-     * "fuori finestra" (il viaggio è comunque in corso) - va quindi segnalato come banner in
-     * EsecuzioneMappaScreen, non solo loggato.
+     * Stessa attesa a Milano Centrale, stesso luogoId su entrambi i lati, ma senza coordinate né
+     * congelate né risolte (nessun geocoding riuscito nemmeno lui): l'esito è NonDisponibile con
+     * motivo esplicito "coordinate mancanti", non un buco silenzioso, e NON è "fuori finestra" (il
+     * viaggio è comunque in corso).
      */
     @Test
     fun `attesa a Milano Centrale senza coordinate produce NonDisponibile con motivo esplicito, non fuori finestra`() {
@@ -361,15 +373,12 @@ class TappeMappaTest {
         val trenoInArrivo = evento(2, istante(4, 15, 0), istante(4, 16, 20))
         val trenoInPartenza = evento(3, istante(4, 17, 30), istante(4, 21, 0))
         val adesso = istante(4, 17, 1)
-
-        val risultato = calcolaPosizioneAttuale(
-            listOf(trenoInArrivo, trenoInPartenza),
-            listOf(
-                posizione(2, luogo("lugano-stazione", "Lugano Stazione"), milanoCentraleSenzaCoordinate),
-                posizione(3, milanoCentraleSenzaCoordinate, luogo("roma-termini", "Roma Termini"))
-            ),
-            adesso
+        val posizioni = listOf(
+            posizione(2, luogo("lugano-stazione", "Lugano Stazione"), milanoCentraleSenzaCoordinate),
+            posizione(3, milanoCentraleSenzaCoordinate, luogo("roma-termini", "Roma Termini"))
         )
+
+        val risultato = calcolaPosizioneAttuale(listOf(trenoInArrivo, trenoInPartenza), posizioni, adesso, mappaCoordinate(posizioni))
 
         val nonDisponibile = risultato as? RisultatoPosizioneAttuale.NonDisponibile
         assertTrue("atteso NonDisponibile, ottenuto $risultato", nonDisponibile != null)
