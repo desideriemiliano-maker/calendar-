@@ -11,7 +11,6 @@ import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.location.Geocoder
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,18 +20,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -330,17 +325,16 @@ fun EsecuzioneMappaScreen(
     // motivo), lasciando il registro silenzioso proprio nel caso più comune da diagnosticare
     // ("perché non vedo mai l'indicatore, nemmeno dopo un po'").
     var posizioneAttuale by remember { mutableStateOf<PosizioneAttualeEsecuzione?>(null) }
-    // Solo i motivi "non è normale" (dati mancanti/incoerenti mentre il viaggio è IN corso) vanno
-    // segnalati qui: "fuori finestra" è l'esito comune per la maggior parte della vita di
-    // un'esecuzione e comparirebbe come banner quasi sempre, diventando rumore invece che un
-    // avviso utile — vedi la doc di RisultatoPosizioneAttuale.NonDisponibile.fuoriFinestra.
-    var avvisoPosizioneAttuale by remember { mutableStateOf<String?>(null) }
+    // SOLO diagnostico/temporaneo (vedi mostraFallbackDebug in MappaPercorsoScreen): true quando
+    // "adesso" è dentro la finestra dell'esecuzione ma calcolaPosizioneAttuale non trova comunque
+    // una posizione (fuoriFinestra=false, il caso "dovrebbe esserci ma manca"). Il motivo esatto
+    // (usato SOLO per il log, non più per la UI - vedi sotto) resta comunque sempre in
+    // RisultatoPosizioneAttuale.NonDisponibile.motivo.
+    var mostraFallbackDebug by remember { mutableStateOf(false) }
     LaunchedEffect(eventiOrdinati, posizioni, adesso) {
         val risultato = calcolaPosizioneAttuale(eventiOrdinati, posizioni, adesso)
         posizioneAttuale = (risultato as? RisultatoPosizioneAttuale.Trovata)?.posizione
-        avvisoPosizioneAttuale = (risultato as? RisultatoPosizioneAttuale.NonDisponibile)
-            ?.takeUnless { it.fuoriFinestra }
-            ?.motivo
+        mostraFallbackDebug = (risultato as? RisultatoPosizioneAttuale.NonDisponibile)?.let { !it.fuoriFinestra } ?: false
         val finestraInizio = eventiOrdinati.firstOrNull()?.inizio
         val finestraFine = eventiOrdinati.lastOrNull()?.fine
         val esito = when (risultato) {
@@ -364,11 +358,8 @@ fun EsecuzioneMappaScreen(
         messaggioNessunaTappa = "Nessuna posizione disponibile per questi eventi: probabilmente sono stati creati con " +
             "una versione dell'app precedente all'introduzione di questa mappa, oppure i luoghi usati non avevano " +
             "indirizzo né coordinate GPS al momento della creazione.",
-        notaInformativa = "Le posizioni mostrate sono quelle salvate al momento della creazione: modifiche successive " +
-            "a Luoghi o Tratte non le cambiano. Gli eventi creati prima dell'introduzione di questa mappa potrebbero " +
-            "non avere alcuna posizione disponibile.",
         posizioneAttuale = posizioneAttuale,
-        avvisoPosizioneAttuale = avvisoPosizioneAttuale
+        mostraFallbackDebug = mostraFallbackDebug
     )
 }
 
@@ -387,9 +378,12 @@ private fun MappaPercorsoScreen(
     onChiudi: () -> Unit,
     padding: PaddingValues,
     messaggioNessunaTappa: String = MESSAGGIO_NESSUNA_TAPPA_LIBRERIA,
-    notaInformativa: String? = null,
     posizioneAttuale: PosizioneAttualeEsecuzione? = null,
-    avvisoPosizioneAttuale: String? = null
+    // SOLO diagnostico/temporaneo (vedi doc su MappaOsm/aggiornaOverlay): quando true e
+    // posizioneAttuale è null, mostra un marker di fallback ben distinto per capire se un
+    // indicatore assente è un problema di CALCOLO (nemmeno il fallback compare) o di RENDERING
+    // (il fallback compare regolarmente, quindi il calcolo vero è la causa reale).
+    mostraFallbackDebug: Boolean = false
 ) {
     val context = LocalContext.current
     var risoluzione by remember { mutableStateOf<RisoluzioneMappa?>(null) }
@@ -397,11 +391,6 @@ private fun MappaPercorsoScreen(
     // pulsante "vai alla posizione teorica" per comandare centro/zoom dall'esterno, dato che
     // MappaOsm la tiene altrimenti solo in uno stato locale a se' non raggiungibile da qui.
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
-    // notaInformativa e avvisoPosizioneAttuale erano banner fissi sopra la mappa: l'utente li ha
-    // segnalati come fastidiosi durante la navigazione (occupano spazio permanentemente). Restano
-    // consultabili qui, dietro un'icona info nella toolbar, invece che sempre visibili - vedi anche
-    // il registro attività, dove avvisoPosizioneAttuale è comunque sempre loggato.
-    var mostraInfoDialog by remember { mutableStateOf(false) }
 
     // Segnala ad AppNavigation che una mappa è visibile, per disattivare lo swipe di cambio
     // sezione mentre l'utente ci interagisce - vedi la doc di MappaVisibileStato per il perché.
@@ -420,31 +409,6 @@ private fun MappaPercorsoScreen(
                 Icon(Icons.Filled.ArrowBack, contentDescription = "Chiudi mappa")
             }
             Text(titolo, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            if (notaInformativa != null || avvisoPosizioneAttuale != null) {
-                IconButton(onClick = { mostraInfoDialog = true }) {
-                    // Colorata in rosso solo quando c'è un avviso attivo (dati mancanti mentre il
-                    // viaggio è in corso, non la sola nota informativa evergreen): senza banner
-                    // permanente, questa è l'unica cosa che segnala "c'è un motivo preciso per cui
-                    // l'indicatore non si vede, guardalo qui" invece di un'icona muta uguale sempre.
-                    val colore = if (avvisoPosizioneAttuale != null) MaterialTheme.colorScheme.error
-                        else LocalContentColor.current
-                    Icon(Icons.Filled.Info, contentDescription = "Informazioni", tint = colore)
-                }
-            }
-        }
-
-        if (mostraInfoDialog) {
-            AlertDialog(
-                onDismissRequest = { mostraInfoDialog = false },
-                confirmButton = { TextButton(onClick = { mostraInfoDialog = false }) { Text("OK") } },
-                title = { Text("Informazioni") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        notaInformativa?.let { Text(it) }
-                        avvisoPosizioneAttuale?.let { Text("Posizione teorica non mostrata: $it") }
-                    }
-                }
-            )
         }
 
         val esito = risoluzione
@@ -461,10 +425,18 @@ private fun MappaPercorsoScreen(
                 // posizione teorica" DENTRO l'area mappa (sempre visibile, scopribile, mai coperto
                 // da una toolbar) invece che in coda a una Row che può restare fuori dalla porzione
                 // di schermo effettivamente inquadrata su alcuni layout esterni a questo schermo.
+                // Punto di fallback SOLO diagnostico (vedi mostraFallbackDebug sopra): centro
+                // geometrico delle tappe già risolte con coordinate valide (le stesse disegnate
+                // come pin numerati) - non richiede alcuna nuova risoluzione di coordinate, quindi
+                // non può introdurre un bug proprio dove si sta già indagando un bug.
+                val puntoFallbackDebug = if (mostraFallbackDebug && posizioneAttuale == null && esito.tappe.isNotEmpty()) {
+                    GeoPoint(esito.tappe.map { it.lat }.average(), esito.tappe.map { it.lng }.average())
+                } else null
                 Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                     MappaOsm(
                         esito = esito,
                         posizioneAttuale = posizioneAttuale,
+                        puntoFallbackDebug = puntoFallbackDebug,
                         onMapReady = { mapViewRef = it },
                         modifier = Modifier.fillMaxSize()
                     )
@@ -540,6 +512,7 @@ private const val SOGLIA_ZOOM_ETICHETTE = 11.0
 private fun MappaOsm(
     esito: RisoluzioneMappa,
     posizioneAttuale: PosizioneAttualeEsecuzione?,
+    puntoFallbackDebug: GeoPoint?,
     modifier: Modifier,
     onMapReady: (MapView) -> Unit = {}
 ) {
@@ -570,7 +543,7 @@ private fun MappaOsm(
                 onMapReady(this)
             }
         },
-        update = { mapView -> aggiornaOverlay(mapView, esito, posizioneAttuale) },
+        update = { mapView -> aggiornaOverlay(mapView, esito, posizioneAttuale, puntoFallbackDebug) },
         onRelease = { it.onDetach() }
     )
 }
@@ -626,7 +599,12 @@ private fun iconePerLuogo(context: Context): Map<IconaLuogo, Drawable> = IconaLu
     requireNotNull(ContextCompat.getDrawable(context, resId)) { "Icona mancante per $icona" }
 }
 
-private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa, posizioneAttuale: PosizioneAttualeEsecuzione?) {
+private fun aggiornaOverlay(
+    mapView: MapView,
+    esito: RisoluzioneMappa,
+    posizioneAttuale: PosizioneAttualeEsecuzione?,
+    puntoFallbackDebug: GeoPoint?
+) {
     mapView.overlays.clear()
     val tappe = esito.tappe
     val punti = tappe.map { GeoPoint(it.lat, it.lng) }
@@ -691,6 +669,24 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa, posizione
             }
         )
         mapView.overlays.add(OverlayPosizioneAttuale(puntoAttuale))
+    }
+
+    // SOLO diagnostico/temporaneo - vedi la doc di mostraFallbackDebug in MappaPercorsoScreen: se
+    // questo marker compare regolarmente ma quello vero (sopra) no, il problema è nel calcolo di
+    // calcolaPosizioneAttuale (dati mancanti/errati), non nel rendering della mappa; se non compare
+    // nemmeno lui, il problema è qui (overlay/z-order/AndroidView). Stile deliberatamente diverso
+    // dall'indicatore vero (grigio, punto interrogativo) per non poter mai essere scambiato per lui.
+    puntoFallbackDebug?.let { punto ->
+        mapView.overlays.add(
+            Marker(mapView).apply {
+                position = punto
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                title = "DEBUG: indicatore reale non disponibile"
+                snippet = "Punto approssimativo (centro del percorso), solo per capire se il problema è nel calcolo o " +
+                    "nel rendering. Vedi il registro attività per il motivo esatto."
+                icon = iconaFallbackDebug(mapView.context)
+            }
+        )
     }
 
     mapView.invalidate()
@@ -906,8 +902,12 @@ private fun iconaMarkerNumerato(context: Context, numero: Int, coloreLuogo: Int?
  */
 private const val COLORE_POSIZIONE_ATTUALE = "#D500F9"
 
-/** Diametro dell'indicatore di posizione teorica: più grande dei 32dp di [iconaMarkerNumerato] (i pin dei Luoghi), non solo diverso nel colore - deve risaltare anche per dimensione. */
-private const val DIAMETRO_POSIZIONE_ATTUALE_DP = 46
+/**
+ * Diametro dell'indicatore di posizione teorica: molto più grande dei 32dp di [iconaMarkerNumerato]
+ * (i pin dei Luoghi) - richiesto esplicitamente dall'utente dopo che 46dp, pur già più grande dei
+ * pin, non risultava comunque abbastanza evidente da individuare a colpo d'occhio sulla mappa.
+ */
+private const val DIAMETRO_POSIZIONE_ATTUALE_DP = 90
 
 /**
  * Marker dell'indicatore di posizione teorica (vedi [PosizioneAttualeEsecuzione]): stessa forma
@@ -946,6 +946,41 @@ private fun iconaPosizioneAttuale(context: Context): Drawable {
     val offset = ((diametro - dimensioneIcona) / 2f).toInt()
     orologio.setBounds(offset, offset, offset + dimensioneIcona, offset + dimensioneIcona)
     orologio.draw(canvas)
+
+    return BitmapDrawable(context.resources, bitmap)
+}
+
+/**
+ * Marker di fallback SOLO diagnostico/temporaneo (vedi `mostraFallbackDebug` in
+ * [MappaPercorsoScreen]): deliberatamente grigio spento con un punto interrogativo, l'opposto
+ * visivo dell'indicatore vero ([iconaPosizioneAttuale], viola acceso con orologio) - non deve
+ * poter essere scambiato per lui né per un pin di un Luogo (rosso/colorato con numero o icona).
+ */
+private fun iconaFallbackDebug(context: Context): Drawable {
+    val densita = context.resources.displayMetrics.density
+    val diametro = (56 * densita).toInt()
+    val bitmap = Bitmap.createBitmap(diametro, diametro, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val raggio = diametro / 2f
+
+    val paintCerchio = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#616161") }
+    canvas.drawCircle(raggio, raggio, raggio - 3f, paintCerchio)
+
+    val paintBordo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 3f * densita
+    }
+    canvas.drawCircle(raggio, raggio, raggio - 3f, paintBordo)
+
+    val paintTesto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = diametro * 0.5f
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
+    val y = raggio - (paintTesto.descent() + paintTesto.ascent()) / 2
+    canvas.drawText("?", raggio, y, paintTesto)
 
     return BitmapDrawable(context.resources, bitmap)
 }
