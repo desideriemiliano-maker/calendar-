@@ -633,6 +633,11 @@ private fun aggiornaOverlay(
         mapView.overlays.add(
             Marker(mapView).apply {
                 position = punti[indice]
+                // ANCHOR_CENTER su entrambi gli assi, non il default di osmdroid (ANCHOR_CENTER
+                // orizzontale ma ANCHOR_BOTTOM verticale, pensato per un pin a goccia che punta in
+                // basso verso il proprio punto): iconaMarkerNumerato disegna un CERCHIO
+                // (drawCircle), non una goccia, quindi il centro geometrico dell'icona è il punto
+                // giusto da ancorare - verificato leggendo il disegno, non per assunzione.
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 title = "${tappa.numero}. ${tappa.luogo.nome}"
                 icon = iconaMarkerNumerato(mapView.context, tappa.numero, tappa.luogo.colore, tappa.luogo.icona?.let { iconeLuogo.getValue(it) })
@@ -671,12 +676,24 @@ private fun aggiornaOverlay(
         mapView.overlays.add(
             Marker(mapView).apply {
                 position = puntoAttuale
+                // Verificato (segnalazione utente sul disallineamento rispetto al tracciato):
+                // già ANCHOR_CENTER su entrambi gli assi, non il default ANCHOR_BOTTOM verticale
+                // di osmdroid - corretto perché iconaPosizioneAttuale disegna un cerchio simmetrico,
+                // non un pin a goccia che punterebbe verso il basso. Il FAB di centraggio (sopra,
+                // in MappaPercorsoScreen) anima verso queste stesse identiche coordinate
+                // (posizioneAttuale.lat/lng), non un valore ricalcolato a parte: la causa più
+                // probabile del disallineamento percepito era la dimensione (90dp, vedi
+                // DIAMETRO_POSIZIONE_ATTUALE_DP) - un cerchio così grande rende difficile giudicare
+                // a occhio se il centro tocchi davvero la linea o solo il suo bordo.
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 title = "Posizione teorica (stimata dagli orari)"
                 snippet = "$descrizione Non è la tua posizione GPS reale."
                 icon = iconaPosizioneAttuale(mapView.context)
             }
         )
+        // L'etichetta di testo si posiziona sopra il marker in base a DIAMETRO_POSIZIONE_ATTUALE_DP
+        // (vedi OverlayPosizioneAttuale.draw): si riallinea da sola con la nuova dimensione, nessuna
+        // costante separata da tenere sincronizzata a mano.
         mapView.overlays.add(OverlayPosizioneAttuale(puntoAttuale))
     }
 
@@ -894,11 +911,15 @@ private fun iconaMarkerNumerato(context: Context, numero: Int, coloreLuogo: Int?
 private const val COLORE_POSIZIONE_ATTUALE = "#D500F9"
 
 /**
- * Diametro dell'indicatore di posizione teorica: molto più grande dei 32dp di [iconaMarkerNumerato]
- * (i pin dei Luoghi) - richiesto esplicitamente dall'utente dopo che 46dp, pur già più grande dei
- * pin, non risultava comunque abbastanza evidente da individuare a colpo d'occhio sulla mappa.
+ * Diametro dell'indicatore di posizione teorica: più grande dei 32dp di [iconaMarkerNumerato] (i
+ * pin dei Luoghi), ma non più 90dp - l'utente lo ha segnalato come eccessivo ("è un po' grande") e
+ * a quella dimensione, a zoom ravvicinato (16.0, il livello usato dal FAB di centraggio), il
+ * cerchio copriva un'area di schermo tale da rendere difficile giudicare a occhio se il suo CENTRO
+ * (l'unico punto geografico che conta - l'ancora è ANCHOR_CENTER/ANCHOR_CENTER, vedi sotto) fosse
+ * davvero sulla linea del percorso o solo vicino: un cerchio grande "sembra" disallineato anche
+ * quando il centro è esatto. 56dp resta ben visibile (quasi il doppio dei pin) senza quell'effetto.
  */
-private const val DIAMETRO_POSIZIONE_ATTUALE_DP = 90
+private const val DIAMETRO_POSIZIONE_ATTUALE_DP = 56
 
 /**
  * Marker dell'indicatore di posizione teorica (vedi [PosizioneAttualeEsecuzione]): stessa forma
