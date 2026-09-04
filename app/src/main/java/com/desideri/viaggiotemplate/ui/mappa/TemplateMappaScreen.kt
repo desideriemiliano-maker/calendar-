@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -354,6 +355,10 @@ private fun MappaPercorsoScreen(
 ) {
     val context = LocalContext.current
     var risoluzione by remember { mutableStateOf<RisoluzioneMappa?>(null) }
+    // Riferimento alla MapView sottostante, popolato da MappaOsm alla creazione: serve al
+    // pulsante "vai alla posizione teorica" per comandare centro/zoom dall'esterno, dato che
+    // MappaOsm la tiene altrimenti solo in uno stato locale a se' non raggiungibile da qui.
+    var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
     LaunchedEffect(percorso, luoghi) {
         risoluzione = risolviMappa(context, percorso, luoghi)
@@ -364,7 +369,19 @@ private fun MappaPercorsoScreen(
             IconButton(onClick = onChiudi) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = "Chiudi mappa")
             }
-            Text(titolo, style = MaterialTheme.typography.titleMedium)
+            Text(titolo, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            // Visibile solo quando esiste davvero una posizione teorica da raggiungere: senza,
+            // sarebbe un pulsante morto (nessun posto dove andare).
+            if (posizioneAttuale != null) {
+                IconButton(onClick = {
+                    mapViewRef?.let { mapView ->
+                        mapView.controller.setZoom(ZOOM_POSIZIONE_ATTUALE)
+                        mapView.controller.animateTo(GeoPoint(posizioneAttuale.lat, posizioneAttuale.lng))
+                    }
+                }) {
+                    Icon(Icons.Filled.Schedule, contentDescription = "Vai alla posizione teorica")
+                }
+            }
         }
 
         val esito = risoluzione
@@ -378,11 +395,23 @@ private fun MappaPercorsoScreen(
                 if (esito.senzaDati > 0 || esito.geocodingFallito > 0) {
                     BannerMappa("Tappe non mostrate: " + descriviTappeEscluse(esito.senzaDati, esito.geocodingFallito) + ".")
                 }
-                MappaOsm(esito = esito, posizioneAttuale = posizioneAttuale, modifier = Modifier.fillMaxWidth().weight(1f))
+                MappaOsm(
+                    esito = esito,
+                    posizioneAttuale = posizioneAttuale,
+                    onMapReady = { mapViewRef = it },
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                )
             }
         }
     }
 }
+
+/**
+ * Zoom applicato dal pulsante "vai alla posizione teorica": più ravvicinato dei 15.0 usati per
+ * centrare un'unica tappa in [aggiornaOverlay] - qui l'utente ha premuto un pulsante apposta per
+ * vedere da vicino dove si troverebbe adesso, non solo per orientarsi sull'insieme del percorso.
+ */
+private const val ZOOM_POSIZIONE_ATTUALE = 16.0
 
 @Composable
 private fun MessaggioNessunaTappa(messaggio: String) {
@@ -423,7 +452,12 @@ private const val SOGLIA_ZOOM_ETICHETTE = 11.0
  * dei tile di questa istanza.
  */
 @Composable
-private fun MappaOsm(esito: RisoluzioneMappa, posizioneAttuale: PosizioneAttualeEsecuzione?, modifier: Modifier) {
+private fun MappaOsm(
+    esito: RisoluzioneMappa,
+    posizioneAttuale: PosizioneAttualeEsecuzione?,
+    modifier: Modifier,
+    onMapReady: (MapView) -> Unit = {}
+) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
@@ -448,6 +482,7 @@ private fun MappaOsm(esito: RisoluzioneMappa, posizioneAttuale: PosizioneAttuale
                 setMultiTouchControls(true)
                 minZoomLevel = 2.0
                 mapViewRef = this
+                onMapReady(this)
             }
         },
         update = { mapView -> aggiornaOverlay(mapView, esito, posizioneAttuale) },
@@ -548,6 +583,13 @@ private fun aggiornaOverlay(mapView: MapView, esito: RisoluzioneMappa, posizione
         mapView.overlays.add(OverlayEtichette(etichetteSegmento, etichetteNodo, iconePerTipo(mapView.context)))
     }
 
+    // In osmdroid l'ordine di overlays determina la sovrapposizione a schermo (il primo aggiunto
+    // sta sotto, l'ultimo sta sopra): questo blocco va tenuto per ULTIMO in aggiornaOverlay,
+    // dopo polilinea/pin dei Luoghi/etichette, cosi' l'indicatore resta sempre in cima a tutto.
+    // aggiornaOverlay fa mapView.overlays.clear() e ricostruisce l'intera lista da zero ad ogni
+    // chiamata (compresa ognuna delle chiamate periodiche ogni 30s, vedi INTERVALLO_AGGIORNAMENTO_
+    // POSIZIONE_MS in EsecuzioneMappaScreen): l'ordine non puo' "scivolare" nel tempo, e' sempre
+    // ricreato uguale.
     posizioneAttuale?.let { posizione ->
         val puntoAttuale = GeoPoint(posizione.lat, posizione.lng)
         val descrizione = when (posizione) {
@@ -766,18 +808,24 @@ private fun iconaMarkerNumerato(context: Context, numero: Int, coloreLuogo: Int?
 }
 
 /**
- * Colore neutro (non usato per nessun pin di [iconaMarkerNumerato]: quelli sono sempre il colore
- * scelto dall'utente per il Luogo, o il rosso di default) riservato all'indicatore di
- * [PosizioneAttualeEsecuzione]: grigio "spento" invece di un colore vivo come gli altri marker,
- * per suggerire visivamente "stima/fantasma", non un luogo vero.
+ * Colore vivo e saturo (mai usato dalle tile Mapnik - niente strade, acqua o terreno è viola) per
+ * spiccare nettamente sullo sfondo mappa: il grigio neutro usato in origine si perdeva contro le
+ * tile OSM, spesso anch'esse sui grigi/beige chiari, ed era la ragione principale per cui
+ * l'indicatore risultava difficile da individuare anche quando effettivamente presente.
  */
-private const val COLORE_POSIZIONE_ATTUALE = "#616161"
+private const val COLORE_POSIZIONE_ATTUALE = "#D500F9"
+
+/** Diametro dell'indicatore di posizione teorica: più grande dei 32dp di [iconaMarkerNumerato] (i pin dei Luoghi), non solo diverso nel colore - deve risaltare anche per dimensione. */
+private const val DIAMETRO_POSIZIONE_ATTUALE_DP = 46
 
 /**
  * Marker dell'indicatore di posizione teorica (vedi [PosizioneAttualeEsecuzione]): stessa forma
- * circolare di [iconaMarkerNumerato] ma deliberatamente diversa in tre modi contemporaneamente, non
+ * circolare di [iconaMarkerNumerato] ma deliberatamente diversa in più modi contemporaneamente, non
  * uno solo, per non lasciare dubbi che sia un'altra tappa dell'itinerario:
- * - colore grigio neutro invece del colore del Luogo/rosso di default;
+ * - colore viola acceso, mai usato per i pin dei Luoghi (colore del Luogo scelto dall'utente, o il
+ *   rosso di default) né per nessun'altra tile/overlay di questa mappa;
+ * - più grande dei pin dei Luoghi ([DIAMETRO_POSIZIONE_ATTUALE_DP] contro i 32dp di
+ *   [iconaMarkerNumerato]);
  * - bordo TRATTEGGIATO invece che pieno (richiama l'idea di "stimato", non di un dato certo);
  * - un'icona di orologio al posto del numero progressivo o dell'icona del Luogo, a richiamare che
  *   il punto viene dagli ORARI pianificati, non da un rilevamento GPS.
@@ -786,7 +834,7 @@ private const val COLORE_POSIZIONE_ATTUALE = "#616161"
  */
 private fun iconaPosizioneAttuale(context: Context): Drawable {
     val densita = context.resources.displayMetrics.density
-    val diametro = (30 * densita).toInt().coerceAtLeast(22)
+    val diametro = (DIAMETRO_POSIZIONE_ATTUALE_DP * densita).toInt().coerceAtLeast(34)
     val bitmap = Bitmap.createBitmap(diametro, diametro, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val raggio = diametro / 2f
@@ -797,8 +845,8 @@ private fun iconaPosizioneAttuale(context: Context): Drawable {
     val paintBordo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.STROKE
-        strokeWidth = 2.5f * densita
-        pathEffect = DashPathEffect(floatArrayOf(3.5f * densita, 2.5f * densita), 0f)
+        strokeWidth = 3f * densita
+        pathEffect = DashPathEffect(floatArrayOf(4.5f * densita, 3f * densita), 0f)
     }
     canvas.drawCircle(raggio, raggio, raggio - 3f, paintBordo)
 
@@ -819,7 +867,7 @@ private fun iconaPosizioneAttuale(context: Context): Drawable {
  * colpo d'occhio, senza dover toccare il marker per aprirne il popup.
  */
 private class OverlayPosizioneAttuale(private val punto: GeoPoint) : Overlay() {
-    private val paintSfondo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(220, 97, 97, 97) }
+    private val paintSfondo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor(COLORE_POSIZIONE_ATTUALE) }
     private val paintTesto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
@@ -835,7 +883,10 @@ private class OverlayPosizioneAttuale(private val punto: GeoPoint) : Overlay() {
         val testo = "posizione teorica"
         val larghezzaTesto = paintTesto.measureText(testo)
         val padding = paintTesto.textSize * 0.35f
-        val cy = p.y - 26f * densita
+        // Sopra il bordo superiore del marker (raggio di DIAMETRO_POSIZIONE_ATTUALE_DP) più un
+        // margine: con l'indicatore ingrandito, il vecchio offset fisso lo avrebbe fatto finire
+        // sovrapposto al marker invece che sopra di esso.
+        val cy = p.y - (DIAMETRO_POSIZIONE_ATTUALE_DP / 2f + 12f) * densita
         val rect = RectF(
             p.x - larghezzaTesto / 2 - padding,
             cy - paintTesto.textSize / 2 - padding / 2,
