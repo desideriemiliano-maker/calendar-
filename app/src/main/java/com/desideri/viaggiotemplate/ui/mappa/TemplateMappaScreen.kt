@@ -48,6 +48,7 @@ import com.desideri.viaggiotemplate.BuildConfig
 import com.desideri.viaggiotemplate.R
 import com.desideri.viaggiotemplate.domain.mappa.PercorsoTemplate
 import com.desideri.viaggiotemplate.domain.mappa.PosizioneAttualeEsecuzione
+import com.desideri.viaggiotemplate.domain.mappa.RisultatoPosizioneAttuale
 import com.desideri.viaggiotemplate.domain.mappa.calcolaPosizioneAttuale
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorso
 import com.desideri.viaggiotemplate.domain.mappa.risolviPercorsoTratta
@@ -315,8 +316,29 @@ fun EsecuzioneMappaScreen(
             delay(INTERVALLO_AGGIORNAMENTO_POSIZIONE_MS)
         }
     }
-    val posizioneAttuale = remember(eventiOrdinati, posizioni, adesso) {
-        calcolaPosizioneAttuale(eventiOrdinati, posizioni, adesso)
+    // Ricalcolato E loggato insieme, nello stesso LaunchedEffect: il registro deve riportare
+    // esattamente il motivo di OGNI ricalcolo (anche quando il risultato non cambia rispetto al
+    // precedente, es. "ancora fuori finestra" per tutta la sessione), non solo le transizioni -
+    // per questo la chiave è (eventiOrdinati, posizioni, adesso) e non il risultato stesso: un
+    // LaunchedEffect(risultato) non si riavvierebbe tra due esiti uguali per struttura (stesso
+    // motivo), lasciando il registro silenzioso proprio nel caso più comune da diagnosticare
+    // ("perché non vedo mai l'indicatore, nemmeno dopo un po'").
+    var posizioneAttuale by remember { mutableStateOf<PosizioneAttualeEsecuzione?>(null) }
+    LaunchedEffect(eventiOrdinati, posizioni, adesso) {
+        val risultato = calcolaPosizioneAttuale(eventiOrdinati, posizioni, adesso)
+        posizioneAttuale = (risultato as? RisultatoPosizioneAttuale.Trovata)?.posizione
+        val finestraInizio = eventiOrdinati.firstOrNull()?.inizio
+        val finestraFine = eventiOrdinati.lastOrNull()?.fine
+        val esito = when (risultato) {
+            is RisultatoPosizioneAttuale.Trovata -> "trovata (${risultato.posizione})"
+            is RisultatoPosizioneAttuale.NonDisponibile -> "non disponibile - ${risultato.motivo}"
+        }
+        // AZIONE_UTENTE invece di ERRORE: "non disponibile" è l'esito normale per la maggior parte
+        // della vita di un'esecuzione (fuori dalla finestra del viaggio), non un guasto - taggarlo
+        // come errore lo farebbe apparire in rosso/allarmante nel registro ad ogni ricalcolo.
+        AttivitaLogger.azioneUtente(
+            "Mappa esecuzione, posizione teorica: adesso=$adesso, finestra esecuzione=$finestraInizio..$finestraFine: $esito"
+        )
     }
 
     MappaPercorsoScreen(

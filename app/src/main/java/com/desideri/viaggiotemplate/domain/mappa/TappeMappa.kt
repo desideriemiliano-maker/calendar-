@@ -263,25 +263,46 @@ sealed class PosizioneAttualeEsecuzione {
 }
 
 /**
+ * Esito di [calcolaPosizioneAttuale]: a differenza di un semplice `PosizioneAttualeEsecuzione?`,
+ * il caso negativo porta anche [NonDisponibile.motivo] — un messaggio leggibile del PERCHÉ non
+ * c'è una posizione da mostrare (fuori finestra, coordinate mancanti, evento intermedio non
+ * tracciabile, ecc.). Introdotto insieme al log diagnostico in EsecuzioneMappaScreen: senza un
+ * motivo esplicito, un `null` da solo non basta a un utente per capire (o a chi lo assiste per
+ * dirgli) se è normale (non è in viaggio in questo momento) o un problema sui dati.
+ */
+sealed class RisultatoPosizioneAttuale {
+    data class Trovata(val posizione: PosizioneAttualeEsecuzione) : RisultatoPosizioneAttuale()
+    data class NonDisponibile(val motivo: String) : RisultatoPosizioneAttuale()
+}
+
+/**
  * Calcola dove ci si troverebbe ADESSO lungo l'esecuzione, in base ai soli orari pianificati (reali,
  * dagli eventi già scritti a calendario) — non è mai una posizione GPS, solo una stima: interpola
  * linearmente tra partenza e arrivo dell'evento in corso secondo la frazione di tempo trascorsa tra
  * il suo inizio e la sua fine.
  *
  * Si applica solo quando [adesso] cade dentro la finestra temporale di QUESTA esecuzione: prima del
- * primo evento (viaggio non ancora iniziato) o dopo l'ultimo (viaggio concluso) ritorna `null`.
+ * primo evento (viaggio non ancora iniziato) o dopo l'ultimo (viaggio concluso) ritorna
+ * [RisultatoPosizioneAttuale.NonDisponibile]. Il confronto è tra [ZonedDateTime] (istanti assoluti,
+ * data+ora+fuso — mai solo l'ora del giorno): [EventoCreato.inizio]/`fine` vengono da
+ * `Instant.ofEpochMilli(...)` in [com.desideri.viaggiotemplate.domain.calendar.CalendarWriter.eventiPerId],
+ * quindi un evento con la stessa fascia oraria ma su un giorno diverso NON può mai far scattare
+ * questi confronti per errore: `isBefore`/`isAfter` su due `ZonedDateTime` confrontano l'istante
+ * intero, non la sola ora locale.
  *
  * Ogni evento è considerato contro l'intera [eventiOrdinati] (non filtrata per posizione nota, a
  * differenza di [risolviPercorsoEsecuzione]): se l'evento in corso ORA non ha una posizione
  * tracciabile (nessuna riga in [posizioni], o coordinate mancanti su partenza/arrivo), si ritorna
- * `null` invece di "saltare" al prossimo evento tracciabile — mostrare lì una posizione sarebbe
- * inventata, dato che non sappiamo dove si trovi realmente durante quella tratta.
+ * [RisultatoPosizioneAttuale.NonDisponibile] invece di "saltare" al prossimo evento tracciabile —
+ * mostrare lì una posizione sarebbe inventata, dato che non sappiamo dove si trovi realmente
+ * durante quella tratta.
  *
  * Se [adesso] cade in un'attesa tra la fine di un evento e l'inizio del successivo, non c'è una
  * linea da percorrere: si evidenzia invece il luogo in cui ci si trova, ma solo quando l'arrivo del
  * primo evento e la partenza del secondo sono confermati essere lo stesso luogo — altrimenti (un
  * evento intermedio non tracciabile "saltato" nel mezzo) non c'è abbastanza certezza su dove ci si
- * trovi durante quell'attesa, e si ritorna `null` piuttosto che indovinare.
+ * trovi durante quell'attesa, e si ritorna [RisultatoPosizioneAttuale.NonDisponibile] piuttosto che
+ * indovinare.
  *
  * [eventiOrdinati] deve essere ordinato per orario di inizio reale, come per [risolviPercorsoEsecuzione].
  */
@@ -289,42 +310,63 @@ fun calcolaPosizioneAttuale(
     eventiOrdinati: List<EventoCreato>,
     posizioni: List<PosizioneEventoCreato>,
     adesso: ZonedDateTime
-): PosizioneAttualeEsecuzione? {
+): RisultatoPosizioneAttuale {
     val posizioniPerId = posizioni.associateBy { it.calendarEventId }
+
+    fun nonDisponibile(motivo: String) = RisultatoPosizioneAttuale.NonDisponibile(motivo)
 
     eventiOrdinati.forEachIndexed { indice, evento ->
         if (!adesso.isBefore(evento.inizio) && !adesso.isAfter(evento.fine)) {
-            val posizione = posizioniPerId[evento.eventoId] ?: return null
-            val partenza = posizione.partenza ?: return null
-            val arrivo = posizione.arrivo ?: return null
+            val posizione = posizioniPerId[evento.eventoId]
+                ?: return nonDisponibile("Nessuna posizione tracciata per l'evento in corso (${evento.titolo}).")
+            val partenza = posizione.partenza
+                ?: return nonDisponibile("Partenza mancante per l'evento in corso (${evento.titolo}).")
+            val arrivo = posizione.arrivo
+                ?: return nonDisponibile("Arrivo mancante per l'evento in corso (${evento.titolo}).")
             if (partenza.luogoId == arrivo.luogoId) {
                 val lat = arrivo.latitudine
                 val lng = arrivo.longitudine
-                return if (lat != null && lng != null) PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, lat, lng) else null
+                return if (lat != null && lng != null) {
+                    RisultatoPosizioneAttuale.Trovata(PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, lat, lng))
+                } else {
+                    nonDisponibile("Coordinate mancanti per il luogo dell'evento in corso (${arrivo.nome}).")
+                }
             }
             val latPartenza = partenza.latitudine
             val lngPartenza = partenza.longitudine
             val latArrivo = arrivo.latitudine
             val lngArrivo = arrivo.longitudine
-            if (latPartenza == null || lngPartenza == null || latArrivo == null || lngArrivo == null) return null
+            if (latPartenza == null || lngPartenza == null || latArrivo == null || lngArrivo == null) {
+                return nonDisponibile("Coordinate di partenza o arrivo mancanti per l'evento in corso (${evento.titolo}).")
+            }
             val durataTotaleMs = Duration.between(evento.inizio, evento.fine).toMillis()
             val frazione = if (durataTotaleMs <= 0) 1.0 else
                 (Duration.between(evento.inizio, adesso).toMillis().toDouble() / durataTotaleMs).coerceIn(0.0, 1.0)
-            return PosizioneAttualeEsecuzione.SuSegmento(
-                lat = latPartenza + (latArrivo - latPartenza) * frazione,
-                lng = lngPartenza + (lngArrivo - lngPartenza) * frazione
+            return RisultatoPosizioneAttuale.Trovata(
+                PosizioneAttualeEsecuzione.SuSegmento(
+                    lat = latPartenza + (latArrivo - latPartenza) * frazione,
+                    lng = lngPartenza + (lngArrivo - lngPartenza) * frazione
+                )
             )
         }
 
         val successivo = eventiOrdinati.getOrNull(indice + 1) ?: return@forEachIndexed
         if (adesso.isAfter(evento.fine) && adesso.isBefore(successivo.inizio)) {
-            val arrivo = posizioniPerId[evento.eventoId]?.arrivo ?: return null
-            val partenzaSuccessiva = posizioniPerId[successivo.eventoId]?.partenza ?: return null
-            if (arrivo.luogoId != partenzaSuccessiva.luogoId) return null
+            val arrivo = posizioniPerId[evento.eventoId]?.arrivo
+                ?: return nonDisponibile("Nessuna posizione di arrivo per l'evento appena concluso (${evento.titolo}).")
+            val partenzaSuccessiva = posizioniPerId[successivo.eventoId]?.partenza
+                ?: return nonDisponibile("Nessuna posizione di partenza per il prossimo evento (${successivo.titolo}).")
+            if (arrivo.luogoId != partenzaSuccessiva.luogoId) {
+                return nonDisponibile("Attesa tra luoghi diversi: l'evento intermedio non è tracciabile con certezza.")
+            }
             val lat = arrivo.latitudine
             val lng = arrivo.longitudine
-            return if (lat != null && lng != null) PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, lat, lng) else null
+            return if (lat != null && lng != null) {
+                RisultatoPosizioneAttuale.Trovata(PosizioneAttualeEsecuzione.SuLuogo(arrivo.luogoId, lat, lng))
+            } else {
+                nonDisponibile("Coordinate mancanti per il luogo dell'attesa (${arrivo.nome}).")
+            }
         }
     }
-    return null
+    return nonDisponibile("Fuori dalla finestra temporale dell'esecuzione (prima del primo evento o dopo l'ultimo).")
 }
