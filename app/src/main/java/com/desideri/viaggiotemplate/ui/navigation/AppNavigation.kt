@@ -60,6 +60,7 @@ import com.desideri.viaggiotemplate.ui.impostazioni.DialogVersioni
 import com.desideri.viaggiotemplate.ui.impostazioni.ImpostazioniViewModel
 import com.desideri.viaggiotemplate.ui.impostazioni.ImpostazioniViewModelFactory
 import com.desideri.viaggiotemplate.ui.luoghi.LuoghiScreen
+import com.desideri.viaggiotemplate.ui.mappa.MappaVisibileStato
 import com.desideri.viaggiotemplate.ui.registro.RegistroAttivitaScreen
 import com.desideri.viaggiotemplate.ui.template.TemplateScreen
 import com.desideri.viaggiotemplate.ui.tratte.TratteScreen
@@ -227,34 +228,37 @@ fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
                 // chiusura cattura altrimenti l'indice di quando il gesto è partito, non quello
                 // corrente dopo un'eventuale navigazione nel frattempo.
                 //
-                // detectHorizontalDragGestures (passata Main, non Initial come invece fa
-                // ZoomableRoot per il pinch) consuma solo dopo aver superato la soglia di
-                // scorrimento ORIZZONTALE: una LazyRow o un componente scorrevole annidati (liste
-                // orizzontali in un editor, la mappa OSMDroid embeddata via AndroidView) vedono
-                // l'evento prima, nella stessa Main pass, e se lo consumano per un proprio
-                // scroll/pan quello che arriva qui risulta già `isConsumed` — questo detector si
-                // ferma da solo, non serve escludere esplicitamente nessuna schermata. Un drag
-                // prevalentemente verticale (scroll di una lista) viene già risolto a monte dalla
-                // stessa logica di rilevamento della soglia, orientation-aware in Compose.
-                .pointerInput(indiceSezioneCorrente) {
-                    var trascinamentoOrizzontale = 0f
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            val nuovoIndice = indiceSezioneDopoSwipe(
-                                indiceCorrente = indiceSezioneCorrente,
-                                trascinamentoOrizzontale = trascinamentoOrizzontale,
-                                larghezzaSchermoPx = size.width,
-                                numeroSezioni = sezioni.size
-                            )
-                            if (nuovoIndice != indiceSezioneCorrente) navigaASezione(sezioni[nuovoIndice])
-                            trascinamentoOrizzontale = 0f
-                        },
-                        onDragCancel = { trascinamentoOrizzontale = 0f }
-                    ) { change, dragAmount ->
-                        trascinamentoOrizzontale += dragAmount
-                        change.consume()
+                // Disattivato del tutto (niente pointerInput attaccato, non solo un detector che
+                // "si ferma da solo") mentre una mappa è visibile (vedi MappaVisibileStato):
+                // l'assunzione originale - che un componente scorrevole annidato come l'AndroidView
+                // di osmdroid consumi il drag per primo nella stessa pass Main, lasciando questo
+                // detector già "isConsumed" - si è rivelata sbagliata nell'uso reale: l'AndroidView
+                // gestisce i tocchi nel dispatch nativo delle View, un mondo separato da quello dei
+                // PointerInputChange di Compose, e il pan della mappa lì non marca nulla come
+                // consumato qui. Risultato: trascinare la mappa cambiava sezione. Va quindi
+                // disattivato esplicitamente per le schermate mappa, non basta la propagazione.
+                .then(
+                    if (MappaVisibileStato.visibile) Modifier
+                    else Modifier.pointerInput(indiceSezioneCorrente) {
+                        var trascinamentoOrizzontale = 0f
+                        detectHorizontalDragGestures(
+                            onDragEnd = {
+                                val nuovoIndice = indiceSezioneDopoSwipe(
+                                    indiceCorrente = indiceSezioneCorrente,
+                                    trascinamentoOrizzontale = trascinamentoOrizzontale,
+                                    larghezzaSchermoPx = size.width,
+                                    numeroSezioni = sezioni.size
+                                )
+                                if (nuovoIndice != indiceSezioneCorrente) navigaASezione(sezioni[nuovoIndice])
+                                trascinamentoOrizzontale = 0f
+                            },
+                            onDragCancel = { trascinamentoOrizzontale = 0f }
+                        ) { change, dragAmount ->
+                            trascinamentoOrizzontale += dragAmount
+                            change.consume()
+                        }
                     }
-                }
+                )
         ) {
             composable(Sezione.Tratte.route) { TratteScreen() }
             composable(Sezione.Luoghi.route) { LuoghiScreen() }

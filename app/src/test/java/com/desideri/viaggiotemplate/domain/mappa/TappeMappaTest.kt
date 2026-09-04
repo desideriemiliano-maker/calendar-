@@ -79,6 +79,38 @@ class TappeMappaTest {
         assertEquals(200.0 * frazioneAttesa, posizioneAttuale.lng, 0.01)
     }
 
+    /**
+     * Stesso scenario, ma con Roma Termini SENZA coordinate (Milano Centrale le ha, come conferma
+     * il suo marker visibile nello screenshot dell'utente): il motivo deve nominare esplicitamente
+     * "Roma Termini" - non un generico "partenza o arrivo" che lascerebbe l'utente a controllare
+     * entrambi i luoghi a mano per capire quale correggere in Luoghi.
+     */
+    @Test
+    fun `Roma Termini senza coordinate produce un motivo che lo nomina esplicitamente`() {
+        val milanoCentrale = luogo("milano-centrale", "Milano Centrale", lat = 45.4841, lng = 9.2039)
+        val romaTerminiSenzaCoordinate = luogo("roma-termini", "Roma Termini", lat = null, lng = null)
+        val ev = evento(3, istante(4, 17, 30), istante(4, 21, 0), titolo = "Milano Centrale -> Roma Termini")
+        val adesso = istante(4, 18, 14)
+
+        val risultato = calcolaPosizioneAttuale(
+            listOf(ev),
+            listOf(posizione(3, milanoCentrale, romaTerminiSenzaCoordinate)),
+            adesso
+        )
+
+        val nonDisponibile = risultato as? RisultatoPosizioneAttuale.NonDisponibile
+        assertTrue("atteso NonDisponibile, ottenuto $risultato", nonDisponibile != null)
+        // "Coordinate mancanti per Roma Termini:" e non "...per Milano Centrale, Roma Termini:" -
+        // il titolo dell'evento (usato più avanti nello stesso motivo) contiene naturalmente
+        // entrambi i nomi, quindi la sola presenza di "Roma Termini" non basterebbe a verificare
+        // che SOLO lei sia elencata tra i luoghi senza coordinate.
+        assertTrue(
+            "motivo atteso con solo 'Roma Termini' tra i luoghi senza coordinate, ottenuto '${nonDisponibile!!.motivo}'",
+            nonDisponibile.motivo.contains("Coordinate mancanti per Roma Termini:")
+        )
+        assertTrue("non deve essere marcato come 'fuori finestra'", !nonDisponibile.fuoriFinestra)
+    }
+
     @Test
     fun `adesso in un'attesa tra due eventi nello stesso luogo evidenzia il luogo`() {
         val a = luogo("A")

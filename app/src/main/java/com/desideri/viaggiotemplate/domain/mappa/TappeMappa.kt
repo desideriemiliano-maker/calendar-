@@ -355,7 +355,15 @@ fun calcolaPosizioneAttuale(
             val latArrivo = arrivo.latitudine
             val lngArrivo = arrivo.longitudine
             if (latPartenza == null || lngPartenza == null || latArrivo == null || lngArrivo == null) {
-                return nonDisponibile("Coordinate di partenza o arrivo mancanti per l'evento in corso (${evento.titolo}).")
+                // Nomina esplicitamente QUALE dei due estremi manca di coordinate (può essere uno
+                // solo, es. Roma Termini senza coordinate mentre Milano Centrale le ha): un motivo
+                // generico "partenza o arrivo" non basterebbe all'utente a sapere quale luogo
+                // correggere in Luoghi senza controllarli entrambi a mano.
+                val luoghiSenzaCoordinate = buildList {
+                    if (latPartenza == null || lngPartenza == null) add(partenza.nome)
+                    if (latArrivo == null || lngArrivo == null) add(arrivo.nome)
+                }.joinToString(", ")
+                return nonDisponibile("Coordinate mancanti per $luoghiSenzaCoordinate: impossibile calcolare la posizione sulla tratta in corso (${evento.titolo}).")
             }
             val durataTotaleMs = Duration.between(evento.inizio, evento.fine).toMillis()
             val frazione = if (durataTotaleMs <= 0) 1.0 else

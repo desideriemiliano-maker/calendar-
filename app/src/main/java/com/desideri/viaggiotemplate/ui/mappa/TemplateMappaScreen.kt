@@ -28,6 +28,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -402,6 +403,13 @@ private fun MappaPercorsoScreen(
     // il registro attività, dove avvisoPosizioneAttuale è comunque sempre loggato.
     var mostraInfoDialog by remember { mutableStateOf(false) }
 
+    // Segnala ad AppNavigation che una mappa è visibile, per disattivare lo swipe di cambio
+    // sezione mentre l'utente ci interagisce - vedi la doc di MappaVisibileStato per il perché.
+    DisposableEffect(Unit) {
+        MappaVisibileStato.incrementa()
+        onDispose { MappaVisibileStato.decrementa() }
+    }
+
     LaunchedEffect(percorso, luoghi) {
         risoluzione = risolviMappa(context, percorso, luoghi)
     }
@@ -414,7 +422,13 @@ private fun MappaPercorsoScreen(
             Text(titolo, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             if (notaInformativa != null || avvisoPosizioneAttuale != null) {
                 IconButton(onClick = { mostraInfoDialog = true }) {
-                    Icon(Icons.Filled.Info, contentDescription = "Informazioni")
+                    // Colorata in rosso solo quando c'è un avviso attivo (dati mancanti mentre il
+                    // viaggio è in corso, non la sola nota informativa evergreen): senza banner
+                    // permanente, questa è l'unica cosa che segnala "c'è un motivo preciso per cui
+                    // l'indicatore non si vede, guardalo qui" invece di un'icona muta uguale sempre.
+                    val colore = if (avvisoPosizioneAttuale != null) MaterialTheme.colorScheme.error
+                        else LocalContentColor.current
+                    Icon(Icons.Filled.Info, contentDescription = "Informazioni", tint = colore)
                 }
             }
         }
