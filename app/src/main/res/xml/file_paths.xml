@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Espone solo la sottocartella cache dove RegistroAttivitaViewModel scrive l'export da condividere: mai la cartella del registro vero e proprio (noBackupFilesDir), né altro. -->
+<!-- Espone solo le sottocartelle cache dove RegistroAttivitaViewModel/EventiCreatiViewModel scrivono gli export da condividere: mai la cartella del registro vero e proprio (noBackupFilesDir), né altro. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="registro_export" path="registro_export/" />
+    <cache-path name="ics_export" path="ics_export/" />
 </paths>

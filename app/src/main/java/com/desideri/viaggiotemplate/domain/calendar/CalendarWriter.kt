@@ -418,6 +418,33 @@ class CalendarWriter(private val context: Context) {
     }
 
     /**
+     * Minuti di preavviso del promemoria per ciascuno di [eventIds] che ne ha almeno uno impostato
+     * sul Calendar Provider — l'unica ragione per rileggere i Reminders, dato che [eventiPerId] non
+     * li include (serve solo per l'esportazione .ics, vedi [IcsExporter.generaIcs]). Un evento con
+     * più promemoria (non creato da questa app, che ne scrive al più uno per evento in
+     * [inserisciEvento], ma possibile se l'utente ne ha aggiunti altri a mano sul calendario)
+     * riporta solo il primo letto: l'export porta un solo VALARM per evento, non serve altro per
+     * il caso comune. Un evento assente dalla mappa risultante non ha alcun promemoria impostato.
+     */
+    fun promemoriaMinutiPerEventi(eventIds: List<Long>): Map<Long, Int> {
+        if (eventIds.isEmpty()) return emptyMap()
+        val proiezione = arrayOf(CalendarContract.Reminders.EVENT_ID, CalendarContract.Reminders.MINUTES)
+        val selezione = "${CalendarContract.Reminders.EVENT_ID} IN (${eventIds.joinToString(",") { "?" }})"
+        val args = eventIds.map { it.toString() }.toTypedArray()
+        val out = mutableMapOf<Long, Int>()
+        context.contentResolver.query(
+            CalendarContract.Reminders.CONTENT_URI, proiezione, selezione, args, null
+        )?.use { cursor ->
+            val idxEvento = cursor.getColumnIndexOrThrow(CalendarContract.Reminders.EVENT_ID)
+            val idxMinuti = cursor.getColumnIndexOrThrow(CalendarContract.Reminders.MINUTES)
+            while (cursor.moveToNext()) {
+                out.putIfAbsent(cursor.getLong(idxEvento), cursor.getInt(idxMinuti))
+            }
+        }
+        return out
+    }
+
+    /**
      * Elimina dal Calendar Provider gli eventi con questi [eventIds]. Richiede il permesso
      * runtime WRITE_CALENDAR. Prova prima un'unica delete batch (selection "_id IN (...)"): se
      * cancella meno righe del previsto, riprova id per id con `ContentUris.withAppendedId` — il

@@ -1,6 +1,7 @@
 package com.desideri.viaggiotemplate.ui.eventicreati
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -10,15 +11,19 @@ import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.PosizioneEventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
+import com.desideri.viaggiotemplate.domain.calendar.nomeFileSicuroIcs
 import com.desideri.viaggiotemplate.domain.calendar.notaSincronizzazione
 import com.desideri.viaggiotemplate.domain.calendar.passata
+import com.desideri.viaggiotemplate.domain.calendar.scriviIcsCondivisibile
 import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.desideri.viaggiotemplate.repository.EsecuzioneCreataRepository
 import com.desideri.viaggiotemplate.ui.AppContainer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 data class StatoEventiCreati(
@@ -156,6 +161,50 @@ class EventiCreatiViewModel(
                 AttivitaLogger.errore("Eliminazione esecuzione fallita", e.message)
                 _stato.value = _stato.value.copy(messaggio = "Errore nell'eliminazione: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * Esporta in .ics TUTTI gli eventi di [esecuzione] (rileggendoli dal Calendar Provider a
+     * partire dagli ID salvati localmente, non necessariamente quelli già in [StatoEventiCreati]:
+     * questa esportazione è raggiungibile anche dalla lista risultati, prima di aver selezionato
+     * l'esecuzione — vedi EventiCreatiScreen). Null se l'esecuzione non ha più eventi sul
+     * calendario o se la scrittura del file fallisce; in quel caso non c'è nulla da condividere,
+     * silenziosamente (un'esportazione fallita non è un errore da bloccare con un dialog).
+     */
+    suspend fun esportaEsecuzione(context: Context, esecuzione: EsecuzioneCreata): Uri? = withContext(Dispatchers.IO) {
+        try {
+            val eventIds = repository.eventIdsPer(esecuzione.id)
+            if (eventIds.isEmpty()) return@withContext null
+            val writer = CalendarWriter(context)
+            val eventi = writer.eventiPerId(eventIds)
+            if (eventi.isEmpty()) return@withContext null
+            val promemoria = writer.promemoriaMinutiPerEventi(eventIds)
+            val uri = scriviIcsCondivisibile(context, eventi, promemoria, nomeFileSicuroIcs(esecuzione.templateNome ?: "eventi"))
+            if (uri != null) {
+                AttivitaLogger.azioneUtente(
+                    "Esportato .ics per esecuzione \"${esecuzione.templateNome ?: "template senza nome"}\" del ${esecuzione.dataViaggio()} (${eventi.size} eventi)"
+                )
+            }
+            uri
+        } catch (e: Exception) {
+            AttivitaLogger.errore("Esportazione .ics dell'esecuzione fallita", e.message)
+            null
+        }
+    }
+
+    /** Come [esportaEsecuzione], per un singolo [EventoCreato] (rete di sicurezza per il flusso doppio-clic in Outlook desktop, vedi IcsExporter). */
+    suspend fun esportaEvento(context: Context, evento: EventoCreato): Uri? = withContext(Dispatchers.IO) {
+        try {
+            val promemoria = CalendarWriter(context).promemoriaMinutiPerEventi(listOf(evento.eventoId))
+            val uri = scriviIcsCondivisibile(context, listOf(evento), promemoria, nomeFileSicuroIcs(evento.titolo))
+            if (uri != null) {
+                AttivitaLogger.azioneUtente("Esportato .ics per evento \"${evento.titolo}\"")
+            }
+            uri
+        } catch (e: Exception) {
+            AttivitaLogger.errore("Esportazione .ics dell'evento fallita", e.message)
+            null
         }
     }
 

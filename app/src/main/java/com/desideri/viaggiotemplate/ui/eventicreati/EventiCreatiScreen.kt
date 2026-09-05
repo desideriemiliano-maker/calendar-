@@ -34,11 +34,12 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -47,6 +48,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconToggleButton
@@ -64,6 +67,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,6 +84,8 @@ import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogSelettoreData
 import com.desideri.viaggiotemplate.ui.mappa.EsecuzioneMappaScreen
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
@@ -142,6 +148,24 @@ private fun etichettaSettimana(inizioSettimanaGruppo: LocalDate, inizioSettimana
                 else -> "$mesi mesi fa"
             }
         }
+    }
+}
+
+/**
+ * Genera (via [ottieniUri], tipicamente [EventiCreatiViewModel.esportaEsecuzione]/`esportaEvento`)
+ * e condivide un .ics con la share sheet di Android. Null (esecuzione senza più eventi sul
+ * calendario, o scrittura del file fallita) non apre alcun chooser: nessun file da condividere,
+ * silenziosamente, non un errore da segnalare con un dialog.
+ */
+private fun condividiIcs(context: Context, scope: CoroutineScope, ottieniUri: suspend () -> android.net.Uri?) {
+    scope.launch {
+        val uri = ottieniUri() ?: return@launch
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/calendar"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Condividi (.ics)"))
     }
 }
 
@@ -217,6 +241,7 @@ fun EventiCreatiScreen() {
 private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: EventiCreatiViewModel, context: Context) {
     var mostraSelettoreData by remember { mutableStateOf(false) }
     var esecuzioneDaEliminare by remember { mutableStateOf<EsecuzioneCreata?>(null) }
+    val scope = rememberCoroutineScope()
 
     Text(
         "Cerca per data del viaggio (l'inizio del primo evento) le esecuzioni di \"Aggiungi al calendario\" e rileggi gli eventi scritti.",
@@ -317,6 +342,9 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
                                     CardEsecuzioneCreata(
                                         esecuzione = esecuzione,
                                         onClick = { viewModel.selezionaEsecuzione(context, esecuzione) },
+                                        onEsporta = {
+                                            condividiIcs(context, scope) { viewModel.esportaEsecuzione(context, esecuzione) }
+                                        },
                                         onElimina = { esecuzioneDaEliminare = esecuzione }
                                     )
                                 }
@@ -340,7 +368,7 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
 }
 
 @Composable
-private fun CardEsecuzioneCreata(esecuzione: EsecuzioneCreata, onClick: () -> Unit, onElimina: () -> Unit) {
+private fun CardEsecuzioneCreata(esecuzione: EsecuzioneCreata, onClick: () -> Unit, onEsporta: () -> Unit, onElimina: () -> Unit) {
     val coloreSfondo = esecuzione.templateColore?.let { Color(it) }
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -358,8 +386,24 @@ private fun CardEsecuzioneCreata(esecuzione: EsecuzioneCreata, onClick: () -> Un
                     (esecuzione.templateNome?.let { " ($it)" } ?: ""),
                 modifier = Modifier.padding(12.dp).weight(1f)
             )
-            IconButton(onClick = onElimina) {
-                Icon(Icons.Filled.Delete, contentDescription = "Elimina evento creato")
+            // Box che racchiude IconButton e DropdownMenu INSIEME: un DropdownMenu fuori da questo
+            // Box si ancora al bordo sinistro dello schermo invece che sotto l'icona che lo apre
+            // (bug già visto in questo progetto).
+            var menuAperto by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { menuAperto = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "Altre azioni")
+                }
+                DropdownMenu(expanded = menuAperto, onDismissRequest = { menuAperto = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Esporta (.ics)") },
+                        onClick = { menuAperto = false; onEsporta() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Elimina") },
+                        onClick = { menuAperto = false; onElimina() }
+                    )
+                }
             }
         }
     }
@@ -428,6 +472,7 @@ private fun DialogErroreEliminazioneCalendario(errore: RisultatoEliminazioneEven
 
 @Composable
 private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: EventiCreatiViewModel, context: Context, onMostraMappa: () -> Unit) {
+    val scope = rememberCoroutineScope()
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { viewModel.tornaAiRisultati() }) {
             Icon(Icons.Filled.ArrowBack, contentDescription = "Torna ai risultati")
@@ -500,6 +545,11 @@ private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: E
                                 IconButton(onClick = { avviaNavigazioneAuto(context, indirizzo) }) {
                                     Icon(Icons.Filled.Directions, contentDescription = "Avvia navigazione verso $indirizzo")
                                 }
+                            }
+                            IconButton(onClick = {
+                                condividiIcs(context, scope) { viewModel.esportaEvento(context, evento) }
+                            }) {
+                                Icon(Icons.Filled.Share, contentDescription = "Esporta questo evento (.ics)")
                             }
                         }
                         Text(
