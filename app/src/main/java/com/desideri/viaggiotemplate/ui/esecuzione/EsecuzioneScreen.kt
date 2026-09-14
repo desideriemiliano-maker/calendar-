@@ -214,8 +214,15 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                     )
                 }
                 val eAncora = stato.templateSelezionato?.slots?.firstOrNull { it.id == evento.templateSlotId }?.ancora == true
+                // Il nome scelto per questa sola esecuzione (se presente) sostituisce quello della
+                // Tratta anagrafica solo in questa copia locale, usata per il titolo e ogni altro
+                // punto della card che legge evento.tratta.nome: l'anagrafica non viene toccata.
+                val nomeTrattaOverride = stato.nomiTratta[evento.templateSlotId]
+                val eventoEffettivo = if (nomeTrattaOverride != null) {
+                    evento.copy(tratta = evento.tratta.copy(nome = nomeTrattaOverride))
+                } else evento
                 CardEvento(
-                    evento = evento,
+                    evento = eventoEffettivo,
                     data = stato.data,
                     eAncora = eAncora,
                     fineEventoPrecedente = if (indice > 0) stato.eventiCalcolati[indice - 1].fineReale else null,
@@ -245,6 +252,8 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
                     onCambiaNotifica = { viewModel.aggiornaNotifica(evento.templateSlotId, it) },
                     onCambiaDescrizione = { viewModel.aggiornaDescrizione(evento.templateSlotId, it) },
                     onCambiaColore = { viewModel.aggiornaColoreEvento(evento.templateSlotId, it) },
+                    nomeTrattaPersonalizzato = nomeTrattaOverride != null,
+                    onCambiaNomeTratta = { viewModel.aggiornaNomeTratta(evento.templateSlotId, it) },
                     onScegliVettoreAltro = { viewModel.sceglieVettorePerTrattaAltro(evento.templateSlotId, it) },
                     dettagliEspansi = evento.templateSlotId in slotDettagliEspansi,
                     onToggleDettagli = {
@@ -653,6 +662,8 @@ private fun CardEvento(
     onCambiaNotifica: (Notifica) -> Unit,
     onCambiaDescrizione: (String) -> Unit,
     onCambiaColore: (Int?) -> Unit,
+    nomeTrattaPersonalizzato: Boolean,
+    onCambiaNomeTratta: (String) -> Unit,
     onScegliVettoreAltro: (Vettore) -> Unit,
     dettagliEspansi: Boolean,
     onToggleDettagli: () -> Unit
@@ -721,11 +732,14 @@ private fun CardEvento(
             }
 
             SezioneDettagliEvento(
+                nomeTratta = evento.tratta.nome,
+                nomeTrattaPersonalizzato = nomeTrattaPersonalizzato,
                 notifica = notifica,
                 descrizione = descrizione,
                 colore = colore,
                 espansa = dettagliEspansi,
                 onToggle = onToggleDettagli,
+                onCambiaNomeTratta = onCambiaNomeTratta,
                 onCambiaNotifica = onCambiaNotifica,
                 onCambiaDescrizione = onCambiaDescrizione,
                 onCambiaColore = onCambiaColore
@@ -838,28 +852,34 @@ private fun CardEvento(
 }
 
 /**
- * Promemoria, descrizione e colore raccolti in una sezione espandibile per tenere la card
+ * Nome, promemoria, descrizione e colore raccolti in una sezione espandibile per tenere la card
  * compatta: chiusa di default (vedi [dettagliEspansi], sollevato in [EsecuzioneScreen] così non si
  * perde durante lo scroll della lista — stesso pattern dei gruppi settimanali in EventiCreatiScreen
- * e dello storico in DialogVersioni). Quando è chiusa e almeno uno dei tre campi ha un valore
+ * e dello storico in DialogVersioni). Quando è chiusa e almeno uno dei campi ha un valore
  * diverso dal default, l'intestazione mostra un sottotitolo con i nomi di quali (es. "Promemoria ·
  * Colore"): l'utente non deve aprirla per scoprire che contiene qualcosa. "Colore" conta come
  * personalizzato anche quando è solo quello ereditato dalla Tratta (nessuna distinzione qui da un
  * override esplicito per questa sola esecuzione): stessa convenzione già usata da SelettoreColore,
- * dove null è l'unico valore "di default".
+ * dove null è l'unico valore "di default". Il nome della tratta, a differenza degli altri tre campi,
+ * NON modifica l'anagrafica: vale solo per questa esecuzione (vedi
+ * [EsecuzioneViewModel.aggiornaNomeTratta]).
  */
 @Composable
 private fun SezioneDettagliEvento(
+    nomeTratta: String,
+    nomeTrattaPersonalizzato: Boolean,
     notifica: Notifica,
     descrizione: String,
     colore: Int?,
     espansa: Boolean,
     onToggle: () -> Unit,
+    onCambiaNomeTratta: (String) -> Unit,
     onCambiaNotifica: (Notifica) -> Unit,
     onCambiaDescrizione: (String) -> Unit,
     onCambiaColore: (Int?) -> Unit
 ) {
     val personalizzati = buildList {
+        if (nomeTrattaPersonalizzato) add("Nome")
         if (notifica != Notifica.NESSUNA) add("Promemoria")
         if (descrizione.isNotBlank()) add("Descrizione")
         if (colore != null) add("Colore")
@@ -874,7 +894,7 @@ private fun SezioneDettagliEvento(
                 .padding(vertical = 4.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Promemoria, descrizione e colore", style = MaterialTheme.typography.labelLarge)
+                Text("Nome, promemoria, descrizione e colore", style = MaterialTheme.typography.labelLarge)
                 if (!espansa && personalizzati.isNotEmpty()) {
                     Text(
                         personalizzati.joinToString(" · "),
@@ -893,6 +913,12 @@ private fun SezioneDettagliEvento(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(top = 6.dp)
             ) {
+                OutlinedTextField(
+                    value = nomeTratta,
+                    onValueChange = onCambiaNomeTratta,
+                    label = { Text("Nome tratta (solo per questa esecuzione)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
                 SelettoreNotifica(valore = notifica, onCambia = onCambiaNotifica)
                 OutlinedTextField(
                     value = descrizione,

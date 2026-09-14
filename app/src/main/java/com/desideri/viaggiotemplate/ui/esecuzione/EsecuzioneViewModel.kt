@@ -68,6 +68,13 @@ data class StatoEsecuzione(
     val descrizioni: Map<String, String> = emptyMap(),
     val coloriSelezionati: Map<String, Int?> = emptyMap(),
     /**
+     * Nome della tratta rinominato solo per questa esecuzione (templateSlotId -> nome), senza
+     * toccare l'anagrafica: a differenza di [notificheSelezionate]/[descrizioni]/[coloriSelezionati]
+     * non viene popolato con un default dopo il calcolo, quindi l'assenza della chiave significa
+     * "usa il nome della Tratta anagrafica" — vedi il fallback in `EsecuzioneScreen`.
+     */
+    val nomiTratta: Map<String, String> = emptyMap(),
+    /**
      * Quando una Tratta TRENO ha vettore ALTRO, l'utente sceglie qui — solo per questa esecuzione,
      * per singolo templateSlotId — quale vettore reale usare (Trenitalia/Italo/SBB): se risolve a
      * un'integrazione con orari reali (Trenitalia/SBB) sblocca la ricerca; se Italo, resta il
@@ -141,6 +148,7 @@ class EsecuzioneViewModel(
                 notificheSelezionate = emptyMap(),
                 descrizioni = emptyMap(),
                 coloriSelezionati = emptyMap(),
+                nomiTratta = emptyMap(),
                 vettoriScelti = emptyMap(),
                 orariIndicativi = emptyMap(),
                 orariAncoreInput = orariAncoreInput
@@ -205,7 +213,15 @@ class EsecuzioneViewModel(
             notificheSelezionate = emptyMap(),
             descrizioni = emptyMap(),
             coloriSelezionati = emptyMap(),
+            nomiTratta = emptyMap(),
             messaggio = null
+        )
+    }
+
+    /** Rinomina la tratta di un evento, solo per questa esecuzione: non tocca l'anagrafica. */
+    fun aggiornaNomeTratta(templateSlotId: String, nome: String) {
+        _stato.value = _stato.value.copy(
+            nomiTratta = _stato.value.nomiTratta + (templateSlotId to nome)
         )
     }
 
@@ -482,8 +498,12 @@ class EsecuzioneViewModel(
         try {
             val writer = CalendarWriter(context)
             val eventiDaScrivere = s.eventiCalcolati.map { ev ->
+                // Il nome scelto solo per questa esecuzione (se presente) sostituisce quello della
+                // Tratta anagrafica esclusivamente in questa copia in memoria, usata per generare il
+                // titolo dell'evento (vedi EventoCalcolato.titolo()): la Tratta salvata non cambia.
+                val evConNome = s.nomiTratta[ev.templateSlotId]?.let { nome -> ev.copy(tratta = ev.tratta.copy(nome = nome)) } ?: ev
                 EventoDaScrivere(
-                    evento = ev,
+                    evento = evConNome,
                     notifica = s.notificheSelezionate[ev.templateSlotId] ?: Notifica.NESSUNA,
                     descrizione = s.descrizioni[ev.templateSlotId] ?: "",
                     colore = s.coloriSelezionati[ev.templateSlotId] ?: ev.tratta.colore
