@@ -12,12 +12,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
@@ -58,9 +58,13 @@ import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.ui.common.AzioneMenuCard
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
+import com.desideri.viaggiotemplate.ui.common.DragDropListState
 import com.desideri.viaggiotemplate.ui.common.MenuAzioniCard
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
 import com.desideri.viaggiotemplate.ui.common.SelettoreNotificaConEreditarieta
+import com.desideri.viaggiotemplate.ui.common.dragDropItem
+import com.desideri.viaggiotemplate.ui.common.dragHandle
+import com.desideri.viaggiotemplate.ui.common.rememberDragDropListState
 import com.desideri.viaggiotemplate.ui.mappa.TemplateMappaScreen
 import java.util.UUID
 
@@ -173,14 +177,19 @@ private fun ListaTemplate(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
         )
         ContatoreElementi(mostrati = templateFiltrati.size, totale = templateEntities.size)
+        val lazyListState = rememberLazyListState()
+        val dragDropListState = rememberDragDropListState(lazyListState) { da, a ->
+            onSposta(templateFiltrati[da], a - da)
+        }
         LazyColumn(
+            state = lazyListState,
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
         itemsIndexed(templateFiltrati, key = { _, entity -> entity.id }) { indice, entity ->
             Card(
                 onClick = { onModifica(entity) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().dragDropItem(dragDropListState, indice),
                 colors = entity.colore?.let {
                     CardDefaults.cardColors(containerColor = Color(it), contentColor = Color(0xFF1B1B1B))
                 } ?: CardDefaults.cardColors()
@@ -196,12 +205,6 @@ private fun ListaTemplate(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    IconButton(onClick = { onSposta(entity, -1) }, enabled = indice > 0) {
-                        Icon(Icons.Filled.ArrowUpward, contentDescription = "Sposta su")
-                    }
-                    IconButton(onClick = { onSposta(entity, 1) }, enabled = indice < templateFiltrati.size - 1) {
-                        Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
-                    }
                     MenuAzioniCard(
                         listOf(
                             AzioneMenuCard("Modifica", Icons.Filled.Edit, onClick = { onModifica(entity) }),
@@ -212,6 +215,12 @@ private fun ListaTemplate(
                                 tint = androidx.compose.material3.MaterialTheme.colorScheme.error
                             )
                         )
+                    )
+                    Icon(
+                        Icons.Filled.DragHandle,
+                        contentDescription = "Trascina per riordinare",
+                        tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.dragHandle(dragDropListState, indice)
                     )
                 }
             }
@@ -240,7 +249,25 @@ private fun TemplateEditorScreen(
     var slots by remember { mutableStateOf(template.slotsOrdinati) }
     var colore by remember { mutableStateOf(template.colore) }
 
+    // Un solo item {} (il nome) precede gli slot in questa LazyColumn: l'indice di layout di
+    // uno slot è quindi sempre il suo indice nella lista +1 — il delta usato per tradurre gli
+    // indici (adiacenti, vedi DragDropListState) ricevuti da onMove in indici di `slots`.
+    val indiceLayoutSlot = 1
+    val lazyListState = rememberLazyListState()
+    val dragDropListState = rememberDragDropListState(lazyListState) { da, a ->
+        val indiceOrigine = da - indiceLayoutSlot
+        val indiceDestinazione = a - indiceLayoutSlot
+        if (indiceOrigine in slots.indices && indiceDestinazione in slots.indices) {
+            slots = slots.toMutableList().apply {
+                val tmp = this[indiceOrigine]
+                this[indiceOrigine] = this[indiceDestinazione]
+                this[indiceDestinazione] = tmp
+            }.mapIndexed { i, s -> s.copy(ordine = i) }
+        }
+    }
+
     LazyColumn(
+        state = lazyListState,
         modifier = Modifier.padding(padding).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -255,19 +282,10 @@ private fun TemplateEditorScreen(
             RigaSlot(
                 slot = slot,
                 indice = index,
-                totale = slots.size,
+                dragDropListState = dragDropListState,
+                indiceLayout = index + indiceLayoutSlot,
                 tratteDisponibili = tratteDisponibili,
                 onCambia = { aggiornato -> slots = slots.mapIndexed { i, s -> if (i == index) aggiornato else s } },
-                onSposta = { direzione ->
-                    val nuovoIndice = index + direzione
-                    if (nuovoIndice in slots.indices) {
-                        slots = slots.toMutableList().apply {
-                            val tmp = this[index]
-                            this[index] = this[nuovoIndice]
-                            this[nuovoIndice] = tmp
-                        }.mapIndexed { i, s -> s.copy(ordine = i) }
-                    }
-                },
                 onRimuovi = {
                     slots = slots.filterIndexed { i, _ -> i != index }.mapIndexed { i, s -> s.copy(ordine = i) }
                 }
@@ -307,10 +325,10 @@ private fun TemplateEditorScreen(
 private fun RigaSlot(
     slot: TemplateSlot,
     indice: Int,
-    totale: Int,
+    dragDropListState: DragDropListState,
+    indiceLayout: Int,
     tratteDisponibili: List<Tratta>,
     onCambia: (TemplateSlot) -> Unit,
-    onSposta: (Int) -> Unit,
     onRimuovi: () -> Unit
 ) {
     var espansoSelettore by remember { mutableStateOf(false) }
@@ -318,7 +336,7 @@ private fun RigaSlot(
 
     val trattaSelezionata = tratteDisponibili.firstOrNull { it.id == slot.trattaSelezionataId }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth().dragDropItem(dragDropListState, indiceLayout)) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text("${indice + 1}.", style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
@@ -327,15 +345,15 @@ private fun RigaSlot(
                     modifier = Modifier.weight(1f).padding(start = 8.dp),
                     style = androidx.compose.material3.MaterialTheme.typography.bodyLarge
                 )
-                IconButton(onClick = { onSposta(-1) }, enabled = indice > 0) {
-                    Icon(Icons.Filled.ArrowUpward, contentDescription = "Sposta su")
-                }
-                IconButton(onClick = { onSposta(1) }, enabled = indice < totale - 1) {
-                    Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
-                }
                 IconButton(onClick = onRimuovi) {
                     Icon(Icons.Filled.Close, contentDescription = "Rimuovi")
                 }
+                Icon(
+                    Icons.Filled.DragHandle,
+                    contentDescription = "Trascina per riordinare",
+                    tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.dragHandle(dragDropListState, indiceLayout)
+                )
             }
 
             ExposedDropdownMenuBox(expanded = espansoSelettore, onExpandedChange = { espansoSelettore = it }) {

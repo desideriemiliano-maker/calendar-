@@ -13,12 +13,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -54,7 +54,10 @@ import com.desideri.viaggiotemplate.domain.model.Luogo
 import com.desideri.viaggiotemplate.repository.RuoloLuogoInTratta
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
+import com.desideri.viaggiotemplate.ui.common.dragDropItem
+import com.desideri.viaggiotemplate.ui.common.dragHandle
 import com.desideri.viaggiotemplate.ui.common.imageVector
+import com.desideri.viaggiotemplate.ui.common.rememberDragDropListState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -175,14 +178,19 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
                     }
                 }
                 ContatoreElementi(mostrati = luoghiFiltrati.size, totale = luoghi.size)
+                val lazyListState = rememberLazyListState()
+                val dragDropListState = rememberDragDropListState(lazyListState) { da, a ->
+                    viewModel.sposta(luoghiFiltrati[da], a - da)
+                }
                 LazyColumn(
+                    state = lazyListState,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     itemsIndexed(luoghiFiltrati, key = { _, luogo -> luogo.id }) { indice, luogo ->
                         Card(
                             onClick = { luogoInModifica = luogo; mostraEditor = true },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().dragDropItem(dragDropListState, indice),
                             colors = luogo.colore?.let {
                                 CardDefaults.cardColors(containerColor = Color(it), contentColor = Color(0xFF1B1B1B))
                             } ?: CardDefaults.cardColors()
@@ -203,15 +211,15 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
                                         Text(it, style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
-                                IconButton(onClick = { viewModel.sposta(luogo, -1) }, enabled = indice > 0) {
-                                    Icon(Icons.Filled.ArrowUpward, contentDescription = "Sposta su")
-                                }
-                                IconButton(onClick = { viewModel.sposta(luogo, 1) }, enabled = indice < luoghiFiltrati.size - 1) {
-                                    Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
-                                }
                                 IconButton(onClick = { luogoDaEliminare = luogo }) {
                                     Icon(Icons.Filled.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)
                                 }
+                                Icon(
+                                    Icons.Filled.DragHandle,
+                                    contentDescription = "Trascina per riordinare",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.dragHandle(dragDropListState, indice)
+                                )
                             }
                         }
                     }

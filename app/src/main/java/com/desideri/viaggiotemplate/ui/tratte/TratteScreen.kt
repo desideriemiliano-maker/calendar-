@@ -10,14 +10,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -65,6 +65,9 @@ import com.desideri.viaggiotemplate.ui.common.AzioneMenuCard
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 import com.desideri.viaggiotemplate.ui.common.MenuAzioniCard
+import com.desideri.viaggiotemplate.ui.common.dragDropItem
+import com.desideri.viaggiotemplate.ui.common.dragHandle
+import com.desideri.viaggiotemplate.ui.common.rememberDragDropListState
 import com.desideri.viaggiotemplate.ui.mappa.TrattaMappaScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -218,7 +221,12 @@ private fun ListaTratte(
 
         ContatoreElementi(mostrati = tratteFiltrate.size, totale = tratte.size)
 
+        val lazyListState = rememberLazyListState()
+        val dragDropListState = rememberDragDropListState(lazyListState) { da, a ->
+            onSposta(tratteFiltrate[da], a - da)
+        }
         LazyColumn(
+            state = lazyListState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 12.dp),
@@ -227,7 +235,7 @@ private fun ListaTratte(
             itemsIndexed(tratteFiltrate, key = { _, tratta -> tratta.id }) { indice, tratta ->
             Card(
                 onClick = { onModifica(tratta) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().dragDropItem(dragDropListState, indice),
                 colors = tratta.colore?.let {
                     CardDefaults.cardColors(containerColor = Color(it), contentColor = Color(0xFF1B1B1B))
                 } ?: CardDefaults.cardColors()
@@ -247,12 +255,6 @@ private fun ListaTratte(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
-                        IconButton(onClick = { onSposta(tratta, -1) }, enabled = indice > 0) {
-                            Icon(Icons.Filled.ArrowUpward, contentDescription = "Sposta su")
-                        }
-                        IconButton(onClick = { onSposta(tratta, 1) }, enabled = indice < tratteFiltrate.size - 1) {
-                            Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
-                        }
                         MenuAzioniCard(
                             listOf(
                                 AzioneMenuCard("Modifica", Icons.Filled.Edit, onClick = { onModifica(tratta) }),
@@ -264,6 +266,12 @@ private fun ListaTratte(
                                     tint = MaterialTheme.colorScheme.error
                                 )
                             )
+                        )
+                        Icon(
+                            Icons.Filled.DragHandle,
+                            contentDescription = "Trascina per riordinare",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.dragHandle(dragDropListState, indice)
                         )
                     }
                     val luoghi = if (tratta.tipo == TipoTratta.RIUNIONE) {
