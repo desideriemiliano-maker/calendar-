@@ -44,11 +44,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          # Fingerprint del certificato di firma usato per questo APK: la CI genera un debug.keystore
+          # nuovo (non quello del computer dello sviluppatore), quindi SHA-1 diverso da build locali —
+          # utile se questo APK va provato con feature che richiedono un fingerprint registrato
+          # (es. Google Sign-In / OAuth client in Google Cloud Console per il backup su Drive).
           git checkout --orphan apk-artifacts
           git rm -rf . >/dev/null
           cp /tmp/app-debug.apk ./app-debug.apk
-          printf 'APK di debug generato dal commit %s (%s) il %s.\n' \
-            "${{ github.sha }}" "${{ github.ref_name }}" "$(date -u +%FT%TZ)" > README.md
+          {
+            printf 'APK di debug generato dal commit %s (%s) il %s.\n\n' \
+              "${{ github.sha }}" "${{ github.ref_name }}" "$(date -u +%FT%TZ)"
+            echo "Fingerprint del certificato di firma debug usato da questa build CI:"
+            echo '```'
+            keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android 2>/dev/null | grep -E "SHA1:|SHA256:|MD5:"
+            echo '```'
+          } > README.md
           git add app-debug.apk README.md
           git commit -m "apk: build da ${{ github.sha }}"
           git push --force origin HEAD:apk-artifacts
