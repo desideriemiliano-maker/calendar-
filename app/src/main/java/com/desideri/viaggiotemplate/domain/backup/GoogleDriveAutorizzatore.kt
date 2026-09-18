@@ -3,6 +3,7 @@ package com.desideri.viaggiotemplate.domain.backup
 import android.app.Activity
 import android.content.Intent
 import androidx.activity.result.IntentSenderRequest
+import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.ApiException
@@ -52,8 +53,19 @@ object GoogleDriveAutorizzatore {
                         )
                     risultato.accessToken != null ->
                         cont.resume(RisultatoAutorizzazioneDrive.Autorizzato(risultato.accessToken!!))
-                    else ->
+                    else -> {
+                        // Play Services ha risposto "con successo" ma senza consenso da risolvere né
+                        // token: nessuna ApiException da cui estrarre un codice (vedi
+                        // BackupDriveException.AutorizzazioneNegata), quindi l'unico modo per capire
+                        // il motivo è ispezionare l'oggetto risultato stesso — loggato qui nel
+                        // Registro Attività (menu dell'app) così è consultabile senza adb/Logcat.
+                        AttivitaLogger.errore(
+                            "Autorizzazione Drive: risultato senza consenso né token",
+                            "pendingIntent=$pendingIntent hasResolution=${risultato.hasResolution()} " +
+                                "accessToken=${risultato.accessToken} risultato=$risultato"
+                        )
                         cont.resumeWithException(BackupDriveException.AutorizzazioneNegata())
+                    }
                 }
             }
             .addOnFailureListener { errore ->
