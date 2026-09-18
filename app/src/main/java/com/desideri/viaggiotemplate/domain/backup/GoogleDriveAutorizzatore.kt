@@ -3,11 +3,14 @@ package com.desideri.viaggiotemplate.domain.backup
 import android.app.Activity
 import android.content.Intent
 import androidx.activity.result.IntentSenderRequest
+import androidx.core.content.IntentCompat
 import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Scope
+import com.google.android.gms.common.api.Status
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -78,16 +81,21 @@ object GoogleDriveAutorizzatore {
         if (!esitoOk) {
             // La resolution/pendingIntent di Play Services (scelta account, consenso) è tornata
             // con esito non-OK: non un'ApiException, quindi loggato qui per lo stesso motivo del
-            // ramo "senza consenso né token" in richiedi(). Intent.toString() da solo non mostra
-            // il contenuto degli extra (es. uno Status con codice/messaggio dell'errore reale),
-            // quindi li si estrae esplicitamente qui.
-            val extra = dati?.extras?.keySet()
-                ?.joinToString { chiave -> "$chiave=${dati.extras?.get(chiave)}" }
-                ?: "nessuno"
-            AttivitaLogger.errore(
-                "Autorizzazione Drive: resolution intent tornata con esito non-OK",
-                "extra: $extra | dati=$dati"
-            )
+            // ramo "senza consenso né token" in richiedi(). L'extra "status" letto con
+            // Bundle.get() grezzo torna il byte[] non deserializzato (Bundle deserializza un
+            // Parcelable solo se letto col tipo giusto) — va estratto con IntentCompat per avere
+            // lo Status vero con codice/messaggio.
+            val status = dati?.let { IntentCompat.getParcelableExtra(it, "status", Status::class.java) }
+            val dettaglio = if (status != null) {
+                "status=${CommonStatusCodes.getStatusCodeString(status.statusCode)} " +
+                    "(codice ${status.statusCode}), messaggio=${status.statusMessage}"
+            } else {
+                val extra = dati?.extras?.keySet()
+                    ?.joinToString { chiave -> "$chiave=${dati.extras?.get(chiave)}" }
+                    ?: "nessuno"
+                "nessuno Status leggibile — extra grezzi: $extra"
+            }
+            AttivitaLogger.errore("Autorizzazione Drive: resolution intent tornata con esito non-OK", dettaglio)
             throw BackupDriveException.AutorizzazioneNegata()
         }
         return try {
