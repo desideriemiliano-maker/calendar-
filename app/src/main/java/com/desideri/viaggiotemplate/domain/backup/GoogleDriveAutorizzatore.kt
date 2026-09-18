@@ -78,10 +78,15 @@ object GoogleDriveAutorizzatore {
         if (!esitoOk) {
             // La resolution/pendingIntent di Play Services (scelta account, consenso) è tornata
             // con esito non-OK: non un'ApiException, quindi loggato qui per lo stesso motivo del
-            // ramo "senza consenso né token" in richiedi().
+            // ramo "senza consenso né token" in richiedi(). Intent.toString() da solo non mostra
+            // il contenuto degli extra (es. uno Status con codice/messaggio dell'errore reale),
+            // quindi li si estrae esplicitamente qui.
+            val extra = dati?.extras?.keySet()
+                ?.joinToString { chiave -> "$chiave=${dati.extras?.get(chiave)}" }
+                ?: "nessuno"
             AttivitaLogger.errore(
                 "Autorizzazione Drive: resolution intent tornata con esito non-OK",
-                "dati=$dati"
+                "extra: $extra | dati=$dati"
             )
             throw BackupDriveException.AutorizzazioneNegata()
         }
