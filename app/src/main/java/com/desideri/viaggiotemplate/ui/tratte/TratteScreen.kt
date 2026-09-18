@@ -255,6 +255,12 @@ private fun ListaTratte(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
+                        Icon(
+                            Icons.Filled.DragHandle,
+                            contentDescription = "Trascina per riordinare",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.dragHandle(dragDropListState, indice)
+                        )
                         MenuAzioniCard(
                             listOf(
                                 AzioneMenuCard("Modifica", Icons.Filled.Edit, onClick = { onModifica(tratta) }),
@@ -266,12 +272,6 @@ private fun ListaTratte(
                                     tint = MaterialTheme.colorScheme.error
                                 )
                             )
-                        )
-                        Icon(
-                            Icons.Filled.DragHandle,
-                            contentDescription = "Trascina per riordinare",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.dragHandle(dragDropListState, indice)
                         )
                     }
                     val luoghi = if (tratta.tipo == TipoTratta.RIUNIONE) {

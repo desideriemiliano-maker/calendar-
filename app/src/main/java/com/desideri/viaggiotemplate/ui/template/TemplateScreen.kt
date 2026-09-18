@@ -205,6 +205,12 @@ private fun ListaTemplate(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
+                    Icon(
+                        Icons.Filled.DragHandle,
+                        contentDescription = "Trascina per riordinare",
+                        tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.dragHandle(dragDropListState, indice)
+                    )
                     MenuAzioniCard(
                         listOf(
                             AzioneMenuCard("Modifica", Icons.Filled.Edit, onClick = { onModifica(entity) }),
@@ -215,12 +221,6 @@ private fun ListaTemplate(
                                 tint = androidx.compose.material3.MaterialTheme.colorScheme.error
                             )
                         )
-                    )
-                    Icon(
-                        Icons.Filled.DragHandle,
-                        contentDescription = "Trascina per riordinare",
-                        tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.dragHandle(dragDropListState, indice)
                     )
                 }
             }
@@ -345,15 +345,15 @@ private fun RigaSlot(
                     modifier = Modifier.weight(1f).padding(start = 8.dp),
                     style = androidx.compose.material3.MaterialTheme.typography.bodyLarge
                 )
-                IconButton(onClick = onRimuovi) {
-                    Icon(Icons.Filled.Close, contentDescription = "Rimuovi")
-                }
                 Icon(
                     Icons.Filled.DragHandle,
                     contentDescription = "Trascina per riordinare",
                     tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.dragHandle(dragDropListState, indiceLayout)
                 )
+                IconButton(onClick = onRimuovi) {
+                    Icon(Icons.Filled.Close, contentDescription = "Rimuovi")
+                }
             }
 
             ExposedDropdownMenuBox(expanded = espansoSelettore, onExpandedChange = { espansoSelettore = it }) {

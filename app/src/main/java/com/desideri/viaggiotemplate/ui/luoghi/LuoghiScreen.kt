@@ -211,15 +211,15 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
                                         Text(it, style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
-                                IconButton(onClick = { luogoDaEliminare = luogo }) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)
-                                }
                                 Icon(
                                     Icons.Filled.DragHandle,
                                     contentDescription = "Trascina per riordinare",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.dragHandle(dragDropListState, indice)
                                 )
+                                IconButton(onClick = { luogoDaEliminare = luogo }) {
+                                    Icon(Icons.Filled.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                     }
