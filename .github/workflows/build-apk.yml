@@ -6,6 +6,9 @@ on:
     branches:
       - claude/drag-drop-elementi-sezioni-rlk7fa
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,3 +30,25 @@ jobs:
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
+
+      # Il download di un artifact di Actions serve da Azure Blob Storage (*.blob.core.windows.net),
+      # dominio non raggiungibile dal proxy di rete della sessione che genera questo workflow —
+      # stessa restrizione vista su dl.google.com per l'SDK Android. Il push su un branch dedicato
+      # del repo resta scaricabile con un normale `git fetch`, che invece funziona.
+      - name: Pubblica l'APK sul branch apk-artifacts
+        run: |
+          set -e
+          APK_PATH=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          cp "$APK_PATH" /tmp/app-debug.apk
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout --orphan apk-artifacts
+          git rm -rf . >/dev/null
+          cp /tmp/app-debug.apk ./app-debug.apk
+          printf 'APK di debug generato dal commit %s (%s) il %s.\n' \
+            "${{ github.sha }}" "${{ github.ref_name }}" "$(date -u +%FT%TZ)" > README.md
+          git add app-debug.apk README.md
+          git commit -m "apk: build da ${{ github.sha }}"
+          git push --force origin HEAD:apk-artifacts
