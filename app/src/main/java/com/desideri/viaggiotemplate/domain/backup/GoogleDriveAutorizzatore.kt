@@ -2,8 +2,8 @@ package com.desideri.viaggiotemplate.domain.backup
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Parcel
 import androidx.activity.result.IntentSenderRequest
-import androidx.core.content.IntentCompat
 import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
@@ -81,11 +81,21 @@ object GoogleDriveAutorizzatore {
         if (!esitoOk) {
             // La resolution/pendingIntent di Play Services (scelta account, consenso) è tornata
             // con esito non-OK: non un'ApiException, quindi loggato qui per lo stesso motivo del
-            // ramo "senza consenso né token" in richiedi(). L'extra "status" letto con
-            // Bundle.get() grezzo torna il byte[] non deserializzato (Bundle deserializza un
-            // Parcelable solo se letto col tipo giusto) — va estratto con IntentCompat per avere
-            // lo Status vero con codice/messaggio.
-            val status = dati?.let { IntentCompat.getParcelableExtra(it, "status", Status::class.java) }
+            // ramo "senza consenso né token" in richiedi(). L'extra "status" non è un Parcelable
+            // extra normale (IntentCompat.getParcelableExtra torna null): è un byte[] con lo Status
+            // serializzato a mano, va deserializzato esplicitamente con Parcel.
+            val status = dati?.getByteArrayExtra("status")?.let { bytes ->
+                val parcel = Parcel.obtain()
+                try {
+                    parcel.unmarshall(bytes, 0, bytes.size)
+                    parcel.setDataPosition(0)
+                    Status.CREATOR.createFromParcel(parcel)
+                } catch (e: Exception) {
+                    null
+                } finally {
+                    parcel.recycle()
+                }
+            }
             val dettaglio = if (status != null) {
                 "status=${CommonStatusCodes.getStatusCodeString(status.statusCode)} " +
                     "(codice ${status.statusCode}), messaggio=${status.statusMessage}"
