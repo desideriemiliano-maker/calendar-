@@ -75,11 +75,27 @@ object GoogleDriveAutorizzatore {
 
     /** Da chiamare con il risultato del launcher lanciato per [RisultatoAutorizzazioneDrive.RichiedeConsenso]. */
     fun completaConsenso(activity: Activity, esitoOk: Boolean, dati: Intent?): String {
-        if (!esitoOk) throw BackupDriveException.AutorizzazioneNegata()
+        if (!esitoOk) {
+            // La resolution/pendingIntent di Play Services (scelta account, consenso) è tornata
+            // con esito non-OK: non un'ApiException, quindi loggato qui per lo stesso motivo del
+            // ramo "senza consenso né token" in richiedi().
+            AttivitaLogger.errore(
+                "Autorizzazione Drive: resolution intent tornata con esito non-OK",
+                "dati=$dati"
+            )
+            throw BackupDriveException.AutorizzazioneNegata()
+        }
         return try {
             val risultato = Identity.getAuthorizationClient(activity).getAuthorizationResultFromIntent(dati)
-            risultato.accessToken ?: throw BackupDriveException.AutorizzazioneNegata()
+            risultato.accessToken ?: run {
+                AttivitaLogger.errore(
+                    "Autorizzazione Drive: resolution intent OK ma senza token",
+                    "hasResolution=${risultato.hasResolution()} pendingIntent=${risultato.pendingIntent} risultato=$risultato"
+                )
+                throw BackupDriveException.AutorizzazioneNegata()
+            }
         } catch (e: ApiException) {
+            AttivitaLogger.errore("Autorizzazione Drive: ApiException dopo la resolution", e.toString())
             throw BackupDriveException.AutorizzazioneNegata(e)
         }
     }
