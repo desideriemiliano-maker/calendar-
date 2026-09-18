@@ -3,6 +3,7 @@ package com.desideri.viaggiotemplate.ui.common
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -11,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
@@ -89,6 +91,43 @@ fun rememberDragDropListState(
     return remember(lazyListState) { DragDropListState(lazyListState) { from, to -> onMoveAggiornato(from, to) } }
 }
 
+/**
+ * Vista locale di [fonte] usata per il rendering di una lista riordinabile via trascinamento, più
+ * lo stato del trascinamento stesso già collegato ad essa. [onSposta] è la persistenza vera e
+ * propria (tipicamente una scrittura asincrona su database via ViewModel): qui viene solo
+ * invocata, mai atteso il suo completamento, perché la vista mostrata a schermo si aggiorna
+ * SUBITO e in modo sincrono ad ogni scambio, senza aspettare quel giro di andata/ritorno — se
+ * dipendesse da [fonte] per riflettere ogni scambio durante un trascinamento veloce, i tempi del
+ * database (non immediati) causerebbero disallineamenti fra indice trascinato e layout reale,
+ * con salti e sovrapposizioni visive.
+ *
+ * La vista si risincronizza da [fonte] ogni volta che questa cambia MA solo quando non si sta
+ * trascinando: un aggiornamento di [fonte] arrivato a metà trascinamento (magari riflette solo
+ * una parte degli scambi già fatti localmente) andrebbe altrimenti a sovrascrivere la vista
+ * corrente con uno stato intermedio incoerente.
+ */
+@Composable
+fun <T> rememberListaRiordinabile(
+    fonte: List<T>,
+    lazyListState: LazyListState,
+    onSposta: (elemento: T, direzione: Int) -> Unit
+): Pair<List<T>, DragDropListState> {
+    var vista by remember { mutableStateOf(fonte) }
+    val dragDropListState = rememberDragDropListState(lazyListState) { da, a ->
+        val elemento = vista[da]
+        vista = vista.toMutableList().apply {
+            val temp = this[da]
+            this[da] = this[a]
+            this[a] = temp
+        }
+        onSposta(elemento, a - da)
+    }
+    LaunchedEffect(fonte) {
+        if (dragDropListState.draggingItemIndex == null) vista = fonte
+    }
+    return vista to dragDropListState
+}
+
 /** Da applicare alla Card/riga di ogni item: la solleva sopra le altre e la sposta mentre viene trascinata. */
 fun Modifier.dragDropItem(dragDropListState: DragDropListState, index: Int): Modifier =
     if (dragDropListState.draggingItemIndex == index) {
@@ -97,11 +136,22 @@ fun Modifier.dragDropItem(dragDropListState: DragDropListState, index: Int): Mod
         this
     }
 
-/** Da applicare alla sola maniglia (icona [Icons.Filled.DragHandle]): avvia e guida il trascinamento. */
-fun Modifier.dragHandle(dragDropListState: DragDropListState, index: Int): Modifier =
-    pointerInput(index) {
+/**
+ * Da applicare alla sola maniglia (icona [Icons.Filled.DragHandle]): avvia e guida il trascinamento.
+ *
+ * Il rilevatore del gesto è tenuto vivo con [pointerInput] agganciato a [dragDropListState] (stabile
+ * per tutta la vita della schermata), MAI a [index]: [index] cambia proprio a causa degli scambi che
+ * il trascinamento in corso produce, quindi tenerlo come chiave riavvierebbe il gesto — e con lui
+ * `detectDragGestures` — a ogni scambio, interrompendo il trascinamento a metà (le schede restavano
+ * "incastrate" sovrapposte perché il gesto veniva abbandonato dopo il primo scambio mentre il dito
+ * restava premuto). [index] resta comunque sempre aggiornato tramite [rememberUpdatedState]: serve
+ * fresco solo all'inizio di ogni NUOVO trascinamento (`onDragStart`), non durante uno già in corso.
+ */
+fun Modifier.dragHandle(dragDropListState: DragDropListState, index: Int): Modifier = composed {
+    val indiceAggiornato by rememberUpdatedState(index)
+    pointerInput(dragDropListState) {
         detectDragGestures(
-            onDragStart = { dragDropListState.onDragStart(index) },
+            onDragStart = { dragDropListState.onDragStart(indiceAggiornato) },
             onDragEnd = { dragDropListState.onDragEnd() },
             onDragCancel = { dragDropListState.onDragEnd() },
             onDrag = { change, dragAmount ->
@@ -110,3 +160,4 @@ fun Modifier.dragHandle(dragDropListState: DragDropListState, index: Int): Modif
             }
         )
     }
+}

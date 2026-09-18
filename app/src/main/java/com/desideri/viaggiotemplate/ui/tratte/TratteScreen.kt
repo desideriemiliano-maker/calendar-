@@ -67,7 +67,7 @@ import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 import com.desideri.viaggiotemplate.ui.common.MenuAzioniCard
 import com.desideri.viaggiotemplate.ui.common.dragDropItem
 import com.desideri.viaggiotemplate.ui.common.dragHandle
-import com.desideri.viaggiotemplate.ui.common.rememberDragDropListState
+import com.desideri.viaggiotemplate.ui.common.rememberListaRiordinabile
 import com.desideri.viaggiotemplate.ui.mappa.TrattaMappaScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -222,8 +222,8 @@ private fun ListaTratte(
         ContatoreElementi(mostrati = tratteFiltrate.size, totale = tratte.size)
 
         val lazyListState = rememberLazyListState()
-        val dragDropListState = rememberDragDropListState(lazyListState) { da, a ->
-            onSposta(tratteFiltrate[da], a - da)
+        val (tratteVisibili, dragDropListState) = rememberListaRiordinabile(tratteFiltrate, lazyListState) { tratta, direzione ->
+            onSposta(tratta, direzione)
         }
         LazyColumn(
             state = lazyListState,
@@ -232,7 +232,7 @@ private fun ListaTratte(
                 .padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            itemsIndexed(tratteFiltrate, key = { _, tratta -> tratta.id }) { indice, tratta ->
+            itemsIndexed(tratteVisibili, key = { _, tratta -> tratta.id }) { indice, tratta ->
             Card(
                 onClick = { onModifica(tratta) },
                 modifier = Modifier.fillMaxWidth().dragDropItem(dragDropListState, indice),

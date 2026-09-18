@@ -65,6 +65,7 @@ import com.desideri.viaggiotemplate.ui.common.SelettoreNotificaConEreditarieta
 import com.desideri.viaggiotemplate.ui.common.dragDropItem
 import com.desideri.viaggiotemplate.ui.common.dragHandle
 import com.desideri.viaggiotemplate.ui.common.rememberDragDropListState
+import com.desideri.viaggiotemplate.ui.common.rememberListaRiordinabile
 import com.desideri.viaggiotemplate.ui.mappa.TemplateMappaScreen
 import java.util.UUID
 
@@ -178,15 +179,15 @@ private fun ListaTemplate(
         )
         ContatoreElementi(mostrati = templateFiltrati.size, totale = templateEntities.size)
         val lazyListState = rememberLazyListState()
-        val dragDropListState = rememberDragDropListState(lazyListState) { da, a ->
-            onSposta(templateFiltrati[da], a - da)
+        val (templateVisibili, dragDropListState) = rememberListaRiordinabile(templateFiltrati, lazyListState) { entity, direzione ->
+            onSposta(entity, direzione)
         }
         LazyColumn(
             state = lazyListState,
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-        itemsIndexed(templateFiltrati, key = { _, entity -> entity.id }) { indice, entity ->
+        itemsIndexed(templateVisibili, key = { _, entity -> entity.id }) { indice, entity ->
             Card(
                 onClick = { onModifica(entity) },
                 modifier = Modifier.fillMaxWidth().dragDropItem(dragDropListState, indice),

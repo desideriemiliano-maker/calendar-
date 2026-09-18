@@ -57,7 +57,7 @@ import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
 import com.desideri.viaggiotemplate.ui.common.dragDropItem
 import com.desideri.viaggiotemplate.ui.common.dragHandle
 import com.desideri.viaggiotemplate.ui.common.imageVector
-import com.desideri.viaggiotemplate.ui.common.rememberDragDropListState
+import com.desideri.viaggiotemplate.ui.common.rememberListaRiordinabile
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -179,15 +179,15 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
                 }
                 ContatoreElementi(mostrati = luoghiFiltrati.size, totale = luoghi.size)
                 val lazyListState = rememberLazyListState()
-                val dragDropListState = rememberDragDropListState(lazyListState) { da, a ->
-                    viewModel.sposta(luoghiFiltrati[da], a - da)
+                val (luoghiVisibili, dragDropListState) = rememberListaRiordinabile(luoghiFiltrati, lazyListState) { luogo, direzione ->
+                    viewModel.sposta(luogo, direzione)
                 }
                 LazyColumn(
                     state = lazyListState,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    itemsIndexed(luoghiFiltrati, key = { _, luogo -> luogo.id }) { indice, luogo ->
+                    itemsIndexed(luoghiVisibili, key = { _, luogo -> luogo.id }) { indice, luogo ->
                         Card(
                             onClick = { luogoInModifica = luogo; mostraEditor = true },
                             modifier = Modifier.fillMaxWidth().dragDropItem(dragDropListState, indice),
