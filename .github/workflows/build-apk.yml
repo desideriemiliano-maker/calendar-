@@ -56,8 +56,14 @@ jobs:
               "${{ github.sha }}" "${{ github.ref_name }}" "$(date -u +%FT%TZ)"
             echo "Fingerprint del certificato di firma debug usato da questa build CI:"
             echo '```'
-            keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android \
-              || echo "(impossibile leggere ~/.android/debug.keystore)"
+            DEBUG_KEYSTORE=$(find "$HOME" -name debug.keystore 2>/dev/null | head -1)
+            if [ -n "$DEBUG_KEYSTORE" ]; then
+              echo "Keystore: $DEBUG_KEYSTORE"
+              keytool -list -v -keystore "$DEBUG_KEYSTORE" -alias androiddebugkey -storepass android -keypass android \
+                || echo "(errore nel leggere $DEBUG_KEYSTORE)"
+            else
+              echo "(nessun debug.keystore trovato sotto \$HOME)"
+            fi
             echo '```'
           } > README.md
           git add app-debug.apk README.md
