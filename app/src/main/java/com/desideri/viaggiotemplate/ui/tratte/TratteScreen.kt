@@ -227,6 +227,7 @@ private fun ListaTratte(
         }
         LazyColumn(
             state = lazyListState,
+            userScrollEnabled = dragDropListState.draggingItemIndex == null,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 12.dp),

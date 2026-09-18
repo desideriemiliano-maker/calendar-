@@ -184,6 +184,7 @@ private fun ListaTemplate(
         }
         LazyColumn(
             state = lazyListState,
+            userScrollEnabled = dragDropListState.draggingItemIndex == null,
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -269,6 +270,7 @@ private fun TemplateEditorScreen(
 
     LazyColumn(
         state = lazyListState,
+        userScrollEnabled = dragDropListState.draggingItemIndex == null,
         modifier = Modifier.padding(padding).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {

@@ -184,6 +184,11 @@ fun LuoghiScreen(viewModel: LuoghiViewModel = viewModel(factory = LuoghiViewMode
                 }
                 LazyColumn(
                     state = lazyListState,
+                    // Durante un trascinamento la lista non deve scorrere per conto proprio: lo
+                    // stesso gesto letto sia dalla maniglia (riordino) sia dallo scroll della
+                    // LazyColumn manderebbe in conflitto le due cose, con la scheda che si sposta
+                    // in modo scorretto mentre la lista scorre sotto di lei.
+                    userScrollEnabled = dragDropListState.draggingItemIndex == null,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
