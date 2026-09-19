@@ -1,6 +1,7 @@
 package com.desideri.viaggiotemplate.ui.common
 
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -11,11 +12,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.isActive
 
 /**
  * Stato di un riordino via trascinamento su una LazyColumn i cui item sono TUTTI riordinabili
@@ -36,6 +39,16 @@ class DragDropListState(
     private var draggingItemInitialOffset by mutableIntStateOf(0)
     private var draggedDistance by mutableFloatStateOf(0f)
 
+    /**
+     * Velocità (px/frame) dell'autoscroll quando l'item trascinato è vicino al bordo del
+     * viewport: negativa verso l'alto, positiva verso il basso, 0 quando non serve. Letta da un
+     * ticker esterno (vedi [rememberDragDropListState]) che esegue lo scroll vero e proprio —
+     * qui si calcola solo QUANTO scrollare, non lo scroll stesso, perché questa classe non ha
+     * accesso a una coroutine scope propria.
+     */
+    var velocitaAutoScroll by mutableFloatStateOf(0f)
+        private set
+
     private val draggingItemLayoutInfo
         get() = lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == draggingItemIndex }
 
@@ -53,9 +66,24 @@ class DragDropListState(
 
     fun onDrag(deltaY: Float) {
         draggedDistance += deltaY
+        rivalutaPosizione()
+    }
 
-        val currentIndex = draggingItemIndex ?: return
-        val currentItem = draggingItemLayoutInfo ?: return
+    /**
+     * Rileva scambi con l'item vicino e aggiorna [velocitaAutoScroll] in base alla posizione
+     * corrente — richiamata sia da [onDrag] (il dito si muove) sia dal ticker di autoscroll
+     * (vedi [rememberDragDropListState]) ad ogni frame in cui la lista sta scorrendo da sola,
+     * così gli scambi vengono rilevati anche quando ci si avvicina al bordo e ci si ferma: senza
+     * questo, l'autoscroll rivelerebbe nuovi elementi senza mai proporli come bersaglio finché il
+     * dito non si muove di nuovo.
+     */
+    internal fun rivalutaPosizione() {
+        val currentIndex = draggingItemIndex
+        val currentItem = draggingItemLayoutInfo
+        if (currentIndex == null || currentItem == null) {
+            velocitaAutoScroll = 0f
+            return
+        }
         val inizio = currentItem.offset + draggingItemOffset
         val fine = inizio + currentItem.size
         val centro = inizio + (fine - inizio) / 2f
@@ -67,12 +95,32 @@ class DragDropListState(
             onMove(currentIndex, target.index)
             draggingItemIndex = target.index
         }
+
+        val layoutInfo = lazyListState.layoutInfo
+        val distanzaSuperiore = inizio - layoutInfo.viewportStartOffset
+        val distanzaInferiore = layoutInfo.viewportEndOffset - fine
+        velocitaAutoScroll = when {
+            distanzaSuperiore < SOGLIA_AUTOSCROLL_PX ->
+                -((SOGLIA_AUTOSCROLL_PX - distanzaSuperiore).coerceIn(0f, SOGLIA_AUTOSCROLL_PX) / SOGLIA_AUTOSCROLL_PX) * VELOCITA_MASSIMA_PX
+            distanzaInferiore < SOGLIA_AUTOSCROLL_PX ->
+                ((SOGLIA_AUTOSCROLL_PX - distanzaInferiore).coerceIn(0f, SOGLIA_AUTOSCROLL_PX) / SOGLIA_AUTOSCROLL_PX) * VELOCITA_MASSIMA_PX
+            else -> 0f
+        }
     }
 
     fun onDragEnd() {
         draggingItemIndex = null
         draggingItemInitialOffset = 0
         draggedDistance = 0f
+        velocitaAutoScroll = 0f
+    }
+
+    private companion object {
+        /** Distanza (px) dal bordo del viewport entro cui scatta l'autoscroll. */
+        const val SOGLIA_AUTOSCROLL_PX = 250f
+
+        /** Velocità massima (px/frame) dell'autoscroll, raggiunta quando si è già oltre il bordo. */
+        const val VELOCITA_MASSIMA_PX = 20f
     }
 }
 
@@ -81,6 +129,13 @@ class DragDropListState(
  * stabile fra le ricomposizioni (necessario perché [remember] la fissi una sola volta), ma
  * delega sempre alla versione più recente — altrimenti un trascinamento userebbe la lista
  * catturata alla primissima composizione, non quella filtrata/aggiornata corrente.
+ *
+ * Il [LaunchedEffect] è il "ticker" dell'autoscroll: ad ogni frame, se [DragDropListState] segnala
+ * una [DragDropListState.velocitaAutoScroll] diversa da zero (item trascinato vicino al bordo del
+ * viewport), scorre la lista di quella quantità e ricontrolla scambi/bordo — necessario perché
+ * `userScrollEnabled = false` sulla LazyColumn durante un trascinamento (per evitare che lo scroll
+ * manuale confligga col riordino) blocca solo lo scroll da gesto utente, non quello programmatico
+ * via [LazyListState].
  */
 @Composable
 fun rememberDragDropListState(
@@ -88,7 +143,22 @@ fun rememberDragDropListState(
     onMove: (fromIndex: Int, toIndex: Int) -> Unit
 ): DragDropListState {
     val onMoveAggiornato by rememberUpdatedState(onMove)
-    return remember(lazyListState) { DragDropListState(lazyListState) { from, to -> onMoveAggiornato(from, to) } }
+    val dragDropListState = remember(lazyListState) { DragDropListState(lazyListState) { from, to -> onMoveAggiornato(from, to) } }
+    // Il ticker gira solo mentre si sta trascinando (chiave = null/non-null di draggingItemIndex,
+    // non l'indice stesso: cambia ad ogni scambio, riavviarlo ogni volta sarebbe inutile): un
+    // while(true)+withFrameMillis attivo per tutta la vita della schermata richiederebbe frame in
+    // continuazione anche da fermo, sprecando batteria.
+    LaunchedEffect(dragDropListState.draggingItemIndex != null) {
+        if (dragDropListState.draggingItemIndex == null) return@LaunchedEffect
+        while (isActive) {
+            withFrameMillis { }
+            if (dragDropListState.velocitaAutoScroll != 0f) {
+                lazyListState.scrollBy(dragDropListState.velocitaAutoScroll)
+                dragDropListState.rivalutaPosizione()
+            }
+        }
+    }
+    return dragDropListState
 }
 
 /**
