@@ -75,6 +75,13 @@ data class StatoEsecuzione(
      */
     val nomiTratta: Map<String, String> = emptyMap(),
     /**
+     * Nome dell'esecuzione (quello mostrato in Eventi creati, es. nella mappa e nella lista
+     * raggruppata per esecuzione) rinominato solo qui, senza toccare il Template anagrafico —
+     * stesso principio di [nomiTratta]: null/vuoto significa "usa il nome del Template", vedi il
+     * fallback in `EsecuzioneScreen`/`EsecuzioneViewModel.aggiungiAlCalendario`.
+     */
+    val nomeEsecuzione: String? = null,
+    /**
      * Quando una Tratta TRENO ha vettore ALTRO, l'utente sceglie qui — solo per questa esecuzione,
      * per singolo templateSlotId — quale vettore reale usare (Trenitalia/Italo/SBB): se risolve a
      * un'integrazione con orari reali (Trenitalia/SBB) sblocca la ricerca; se Italo, resta il
@@ -149,6 +156,7 @@ class EsecuzioneViewModel(
                 descrizioni = emptyMap(),
                 coloriSelezionati = emptyMap(),
                 nomiTratta = emptyMap(),
+                nomeEsecuzione = null,
                 vettoriScelti = emptyMap(),
                 orariIndicativi = emptyMap(),
                 orariAncoreInput = orariAncoreInput
@@ -223,6 +231,11 @@ class EsecuzioneViewModel(
         _stato.value = _stato.value.copy(
             nomiTratta = _stato.value.nomiTratta + (templateSlotId to nome)
         )
+    }
+
+    /** Rinomina l'esecuzione (nome mostrato in Eventi creati), solo per questa esecuzione: non tocca il Template. */
+    fun aggiornaNomeEsecuzione(nome: String) {
+        _stato.value = _stato.value.copy(nomeEsecuzione = nome)
     }
 
     /** Aggiorna il promemoria scelto per un evento, solo per questa esecuzione. */
@@ -495,6 +508,9 @@ class EsecuzioneViewModel(
             _stato.value = s.copy(messaggio = "Configura un calendario di destinazione nella sezione Impostazioni")
             return
         }
+        // Il nome scelto solo per questa esecuzione (se non vuoto) sostituisce quello del Template
+        // anagrafico ovunque serva identificare il gruppo di eventi appena creato (Eventi creati).
+        val nomeEsecuzione = s.nomeEsecuzione?.takeIf { it.isNotBlank() } ?: s.templateSelezionato?.nome
         try {
             val writer = CalendarWriter(context)
             val eventiDaScrivere = s.eventiCalcolati.map { ev ->
@@ -538,7 +554,7 @@ class EsecuzioneViewModel(
                         esecuzioneId,
                         posizioni,
                         inizioPrimoEvento,
-                        s.templateSelezionato?.nome,
+                        nomeEsecuzione,
                         s.templateSelezionato?.colore
                     )
                 }
@@ -550,7 +566,7 @@ class EsecuzioneViewModel(
             val notaSync = if (risultatoInserimento.calendarioSyncDisattivata) {
                 " Sincronizzazione disattivata per ${calendario.nome}: resteranno visibili solo su questo dispositivo finché non la riattivi."
             } else ""
-            val nomeTemplate = s.templateSelezionato?.nome ?: "template senza nome"
+            val nomeTemplate = nomeEsecuzione ?: "template senza nome"
             _stato.value = if (eventiConId.size == s.eventiCalcolati.size) {
                 AttivitaLogger.azioneUtente("Creati ${eventiConId.size} eventi calendario per \"$nomeTemplate\" del ${s.data}")
                 s.copy(messaggio = "${eventiConId.size} eventi aggiunti al calendario ✓$notaSync")

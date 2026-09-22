@@ -129,6 +129,18 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
 
             if (stato.templateSelezionato != null) {
                 item {
+                    // Nome del gruppo di eventi mostrato in "Eventi creati": di default quello del
+                    // Template, modificabile qui solo per questa esecuzione (non tocca l'anagrafica,
+                    // stesso principio del nome di una singola tratta più sotto).
+                    OutlinedTextField(
+                        value = stato.nomeEsecuzione ?: stato.templateSelezionato?.nome ?: "",
+                        onValueChange = { viewModel.aggiornaNomeEsecuzione(it) },
+                        label = { Text("Nome (mostrato in Eventi)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
                     Text("Data del viaggio")
                     CampoData(valore = stato.data, onValoreCambiato = { viewModel.aggiornaData(it) })
                 }
