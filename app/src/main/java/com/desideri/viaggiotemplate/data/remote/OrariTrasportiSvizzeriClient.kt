@@ -23,7 +23,11 @@ data class CorsaScaricata(
  */
 class OrariTrasportiSvizzeriClient : ClientOrariTreno {
 
-    private val formatoData = DateTimeFormatter.ofPattern("dd-MM-yyyy")
+    // ISO (yyyy-MM-dd): il formato "dd-MM-yyyy" usato in precedenza non viene riconosciuto
+    // dall'API, che ripiega silenziosamente sull'epoch (1970-01-01) — vedi il controllo sulla
+    // risposta HTTP sotto, che ora espone l'errore reale del router invece di nascondere il
+    // problema dietro un generico "stazione non trovata".
+    private val formatoData = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     private val formatoOra = DateTimeFormatter.ofPattern("HH:mm")
 
     /**
