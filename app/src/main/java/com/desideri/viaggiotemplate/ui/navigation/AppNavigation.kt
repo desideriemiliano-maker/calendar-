@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Place
@@ -33,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,6 +109,7 @@ internal fun indiceSezioneDopoSwipe(
 fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
     val navController = rememberNavController()
     val impostazioniViewModel: ImpostazioniViewModel = viewModel(factory = ImpostazioniViewModelFactory.get())
+    val statoImpostazioni by impostazioniViewModel.stato.collectAsState()
     val backupDriveViewModel: BackupDriveViewModel = viewModel(factory = BackupDriveViewModelFactory.get())
     val eliminaPassatiViewModel: EliminaPassatiViewModel = viewModel(factory = EliminaPassatiViewModelFactory.get())
     val activity = LocalContext.current as? Activity
@@ -164,6 +167,15 @@ fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
                             text = { Text("Elimina eventi passati") },
                             leadingIcon = { Icon(Icons.Filled.DeleteSweep, contentDescription = null) },
                             onClick = { menuEspanso = false; eliminaPassatiViewModel.avvia() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Eventi privati per default") },
+                            leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null) },
+                            // Stessa scelta di preselezione (mai toggle diretto dello switch, vedi
+                            // commento su "Pinch-to-zoom" sopra) usata dal popup "Rendi privati?" a
+                            // ogni esportazione .ics - qui si cambia solo il default proposto.
+                            trailingIcon = { Switch(checked = statoImpostazioni.eventiPrivatiDiDefault, onCheckedChange = null) },
+                            onClick = { impostazioniViewModel.alternaEventiPrivatiDiDefault() }
                         )
                         HorizontalDivider()
                         DropdownMenuItem(

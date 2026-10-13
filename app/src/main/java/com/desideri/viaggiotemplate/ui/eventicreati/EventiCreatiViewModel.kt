@@ -172,7 +172,7 @@ class EventiCreatiViewModel(
      * calendario o se la scrittura del file fallisce; in quel caso non c'è nulla da condividere,
      * silenziosamente (un'esportazione fallita non è un errore da bloccare con un dialog).
      */
-    suspend fun esportaEsecuzione(context: Context, esecuzione: EsecuzioneCreata): Uri? = withContext(Dispatchers.IO) {
+    suspend fun esportaEsecuzione(context: Context, esecuzione: EsecuzioneCreata, privato: Boolean): Uri? = withContext(Dispatchers.IO) {
         try {
             val eventIds = repository.eventIdsPer(esecuzione.id)
             if (eventIds.isEmpty()) return@withContext null
@@ -180,10 +180,10 @@ class EventiCreatiViewModel(
             val eventi = writer.eventiPerId(eventIds)
             if (eventi.isEmpty()) return@withContext null
             val promemoria = writer.promemoriaMinutiPerEventi(eventIds)
-            val uri = scriviIcsCondivisibile(context, eventi, promemoria, nomeFileSicuroIcs(esecuzione.templateNome ?: "eventi"))
+            val uri = scriviIcsCondivisibile(context, eventi, promemoria, nomeFileSicuroIcs(esecuzione.templateNome ?: "eventi"), privato)
             if (uri != null) {
                 AttivitaLogger.azioneUtente(
-                    "Esportato .ics per esecuzione \"${esecuzione.templateNome ?: "template senza nome"}\" del ${esecuzione.dataViaggio()} (${eventi.size} eventi)"
+                    "Esportato .ics per esecuzione \"${esecuzione.templateNome ?: "template senza nome"}\" del ${esecuzione.dataViaggio()} (${eventi.size} eventi${if (privato) ", privati" else ""})"
                 )
             }
             uri
@@ -194,12 +194,12 @@ class EventiCreatiViewModel(
     }
 
     /** Come [esportaEsecuzione], per un singolo [EventoCreato] (rete di sicurezza per il flusso doppio-clic in Outlook desktop, vedi IcsExporter). */
-    suspend fun esportaEvento(context: Context, evento: EventoCreato): Uri? = withContext(Dispatchers.IO) {
+    suspend fun esportaEvento(context: Context, evento: EventoCreato, privato: Boolean): Uri? = withContext(Dispatchers.IO) {
         try {
             val promemoria = CalendarWriter(context).promemoriaMinutiPerEventi(listOf(evento.eventoId))
-            val uri = scriviIcsCondivisibile(context, listOf(evento), promemoria, nomeFileSicuroIcs(evento.titolo))
+            val uri = scriviIcsCondivisibile(context, listOf(evento), promemoria, nomeFileSicuroIcs(evento.titolo), privato)
             if (uri != null) {
-                AttivitaLogger.azioneUtente("Esportato .ics per evento \"${evento.titolo}\"")
+                AttivitaLogger.azioneUtente("Esportato .ics per evento \"${evento.titolo}\"${if (privato) " (privato)" else ""}")
             }
             uri
         } catch (e: Exception) {

@@ -78,9 +78,11 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
+import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.domain.calendar.avviaNavigazioneAuto
 import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
+import com.desideri.viaggiotemplate.ui.AppContainer
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogSelettoreData
 import com.desideri.viaggiotemplate.ui.mappa.EsecuzioneMappaScreen
@@ -241,6 +243,7 @@ fun EventiCreatiScreen() {
 private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: EventiCreatiViewModel, context: Context) {
     var mostraSelettoreData by remember { mutableStateOf(false) }
     var esecuzioneDaEliminare by remember { mutableStateOf<EsecuzioneCreata?>(null) }
+    var esecuzioneDaEsportare by remember { mutableStateOf<EsecuzioneCreata?>(null) }
     val scope = rememberCoroutineScope()
 
     Text(
@@ -342,9 +345,7 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
                                     CardEsecuzioneCreata(
                                         esecuzione = esecuzione,
                                         onClick = { viewModel.selezionaEsecuzione(context, esecuzione) },
-                                        onEsporta = {
-                                            condividiIcs(context, scope) { viewModel.esportaEsecuzione(context, esecuzione) }
-                                        },
+                                        onEsporta = { esecuzioneDaEsportare = esecuzione },
                                         onElimina = { esecuzioneDaEliminare = esecuzione }
                                     )
                                 }
@@ -363,6 +364,17 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
                 esecuzioneDaEliminare = null
             },
             onAnnulla = { esecuzioneDaEliminare = null }
+        )
+    }
+
+    esecuzioneDaEsportare?.let { esecuzione ->
+        DialogScegliPrivacyExport(
+            defaultPrivato = AppContainer.impostazioniStore.eventiPrivatiDiDefault,
+            onConferma = { privato ->
+                condividiIcs(context, scope) { viewModel.esportaEsecuzione(context, esecuzione, privato) }
+                esecuzioneDaEsportare = null
+            },
+            onAnnulla = { esecuzioneDaEsportare = null }
         )
     }
 }
@@ -436,6 +448,33 @@ private fun DialogConfermaEliminazioneEsecuzione(
 }
 
 /**
+ * Chiesto a ogni esportazione .ics (sia per l'intera esecuzione sia per un singolo evento): se
+ * rendere privati gli eventi esportati (CLASS:PRIVATE, vedi IcsExporter.generaIcs), con la scelta
+ * preselezionata da [defaultPrivato] (impostazione "Eventi privati per default" nel menu principale)
+ * ma sempre modificabile al volo per questa singola esportazione.
+ */
+@Composable
+private fun DialogScegliPrivacyExport(
+    defaultPrivato: Boolean,
+    onConferma: (privato: Boolean) -> Unit,
+    onAnnulla: () -> Unit
+) {
+    var privato by remember { mutableStateOf(defaultPrivato) }
+    AlertDialog(
+        onDismissRequest = onAnnulla,
+        title = { Text("Esporta .ics") },
+        text = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = privato, onCheckedChange = { privato = it })
+                Text("Rendi privati gli eventi esportati")
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConferma(privato) }) { Text("Esporta") } },
+        dismissButton = { TextButton(onClick = onAnnulla) { Text("Annulla") } }
+    )
+}
+
+/**
  * Mostrato solo quando l'eliminazione dal calendario (batch + fallback per singolo evento, vedi
  * CalendarWriter.eliminaEventi) non è riuscita a rimuovere tutti gli eventi richiesti: la
  * registrazione locale non viene toccata in quel caso, quindi qui si spiega perché e si dà un
@@ -473,6 +512,7 @@ private fun DialogErroreEliminazioneCalendario(errore: RisultatoEliminazioneEven
 @Composable
 private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: EventiCreatiViewModel, context: Context, onMostraMappa: () -> Unit) {
     val scope = rememberCoroutineScope()
+    var eventoDaEsportare by remember { mutableStateOf<EventoCreato?>(null) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { viewModel.tornaAiRisultati() }) {
             Icon(Icons.Filled.ArrowBack, contentDescription = "Torna ai risultati")
@@ -546,9 +586,7 @@ private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: E
                                     Icon(Icons.Filled.Directions, contentDescription = "Avvia navigazione verso $indirizzo")
                                 }
                             }
-                            IconButton(onClick = {
-                                condividiIcs(context, scope) { viewModel.esportaEvento(context, evento) }
-                            }) {
+                            IconButton(onClick = { eventoDaEsportare = evento }) {
                                 Icon(Icons.Filled.Share, contentDescription = "Esporta questo evento (.ics)")
                             }
                         }
@@ -567,5 +605,16 @@ private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: E
                 }
             }
         }
+    }
+
+    eventoDaEsportare?.let { evento ->
+        DialogScegliPrivacyExport(
+            defaultPrivato = AppContainer.impostazioniStore.eventiPrivatiDiDefault,
+            onConferma = { privato ->
+                condividiIcs(context, scope) { viewModel.esportaEvento(context, evento, privato) }
+                eventoDaEsportare = null
+            },
+            onAnnulla = { eventoDaEsportare = null }
+        )
     }
 }
