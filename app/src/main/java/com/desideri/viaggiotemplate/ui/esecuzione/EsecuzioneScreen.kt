@@ -101,6 +101,17 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
         if (permessoConcesso) viewModel.aggiornaCalendarioConfigurato(context)
     }
 
+    // Consuma una richiesta pendente di "Ripeti" da Eventi creati (vedi RichiestaRipetiEsecuzione):
+    // riletta a ogni ricomposizione di questa schermata, non solo alla prima, perché con la
+    // navigazione a tab (saveState/restoreState) questo composable viene smontato e rimontato ad
+    // ogni cambio di tab, quindi è proprio l'evento "l'utente è appena arrivato qui" da intercettare.
+    LaunchedEffect(Unit) {
+        RichiestaRipetiEsecuzione.pendente?.let { richiesta ->
+            RichiestaRipetiEsecuzione.consumata()
+            viewModel.ripetiEsecuzione(richiesta.templateId, richiesta.data)
+        }
+    }
+
     var espansoTemplate by remember { mutableStateOf(false) }
     // Sollevato fuori dalla LazyColumn sottostante, come gruppiRidotti in EventiCreatiScreen: gli
     // item della lista possono essere ricomposti da zero quando escono ed entrano dal viewport

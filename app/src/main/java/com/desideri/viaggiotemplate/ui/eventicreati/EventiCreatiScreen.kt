@@ -85,6 +85,7 @@ import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
 import com.desideri.viaggiotemplate.ui.AppContainer
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogSelettoreData
+import com.desideri.viaggiotemplate.ui.esecuzione.RichiestaRipetiEsecuzione
 import com.desideri.viaggiotemplate.ui.mappa.EsecuzioneMappaScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -172,7 +173,7 @@ private fun condividiIcs(context: Context, scope: CoroutineScope, ottieniUri: su
 }
 
 @Composable
-fun EventiCreatiScreen() {
+fun EventiCreatiScreen(onVaiAEsegui: () -> Unit = {}) {
     val viewModel: EventiCreatiViewModel = viewModel(factory = EventiCreatiViewModelFactory.get())
     val stato by viewModel.stato.collectAsState()
     val context = LocalContext.current
@@ -226,7 +227,7 @@ fun EventiCreatiScreen() {
                         Text("Consenti accesso al calendario")
                     }
                 } else if (stato.esecuzioneSelezionata == null) {
-                    PannelloRicerca(stato = stato, viewModel = viewModel, context = context)
+                    PannelloRicerca(stato = stato, viewModel = viewModel, context = context, onVaiAEsegui = onVaiAEsegui)
                 } else {
                     PannelloDettaglio(stato = stato, viewModel = viewModel, context = context, onMostraMappa = { mostraMappa = true })
                 }
@@ -240,10 +241,11 @@ fun EventiCreatiScreen() {
 }
 
 @Composable
-private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: EventiCreatiViewModel, context: Context) {
+private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: EventiCreatiViewModel, context: Context, onVaiAEsegui: () -> Unit) {
     var mostraSelettoreData by remember { mutableStateOf(false) }
     var esecuzioneDaEliminare by remember { mutableStateOf<EsecuzioneCreata?>(null) }
     var esecuzioneDaEsportare by remember { mutableStateOf<EsecuzioneCreata?>(null) }
+    var esecuzioneDaRipetere by remember { mutableStateOf<EsecuzioneCreata?>(null) }
     val scope = rememberCoroutineScope()
 
     Text(
@@ -346,6 +348,7 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
                                         esecuzione = esecuzione,
                                         onClick = { viewModel.selezionaEsecuzione(context, esecuzione) },
                                         onEsporta = { esecuzioneDaEsportare = esecuzione },
+                                        onRipeti = if (esecuzione.templateId != null) { { esecuzioneDaRipetere = esecuzione } } else null,
                                         onElimina = { esecuzioneDaEliminare = esecuzione }
                                     )
                                 }
@@ -377,10 +380,31 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
             onAnnulla = { esecuzioneDaEsportare = null }
         )
     }
+
+    esecuzioneDaRipetere?.let { esecuzione ->
+        val templateId = esecuzione.templateId
+        if (templateId != null) {
+            DialogSelettoreData(
+                dataIniziale = esecuzione.dataViaggio(),
+                onConferma = { nuovaData ->
+                    RichiestaRipetiEsecuzione.richiedi(templateId, nuovaData)
+                    esecuzioneDaRipetere = null
+                    onVaiAEsegui()
+                },
+                onDismiss = { esecuzioneDaRipetere = null }
+            )
+        }
+    }
 }
 
 @Composable
-private fun CardEsecuzioneCreata(esecuzione: EsecuzioneCreata, onClick: () -> Unit, onEsporta: () -> Unit, onElimina: () -> Unit) {
+private fun CardEsecuzioneCreata(
+    esecuzione: EsecuzioneCreata,
+    onClick: () -> Unit,
+    onEsporta: () -> Unit,
+    onRipeti: (() -> Unit)?,
+    onElimina: () -> Unit
+) {
     val coloreSfondo = esecuzione.templateColore?.let { Color(it) }
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -411,6 +435,15 @@ private fun CardEsecuzioneCreata(esecuzione: EsecuzioneCreata, onClick: () -> Un
                         text = { Text("Esporta (.ics)") },
                         onClick = { menuAperto = false; onEsporta() }
                     )
+                    // Assente (non solo disabilitata) per le esecuzioni senza templateId: scritte
+                    // prima di questo campo, o il cui Template è stato eliminato nel frattempo -
+                    // "Ripeti" non ha nulla da ricaricare in nessuno dei due casi.
+                    if (onRipeti != null) {
+                        DropdownMenuItem(
+                            text = { Text("Ripeti") },
+                            onClick = { menuAperto = false; onRipeti() }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Elimina") },
                         onClick = { menuAperto = false; onElimina() }

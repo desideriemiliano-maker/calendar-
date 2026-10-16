@@ -25,7 +25,7 @@ import java.util.UUID
 const val NOME_FILE_DATABASE = "viaggio-template.db"
 
 /** Versione corrente dello schema (== `PRAGMA user_version` scritto da Room): riusata dal ripristino di un backup Drive per verificare, prima di sostituire il database live, che il file scaricato sia dello schema atteso. */
-const val VERSIONE_SCHEMA_DATABASE = 17
+const val VERSIONE_SCHEMA_DATABASE = 18
 
 @Database(
     entities = [
@@ -385,5 +385,17 @@ val MIGRATION_16_17: Migration = object : Migration(16, 17) {
         db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN arrivoLongitudine REAL")
         db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN arrivoColore INTEGER")
         db.execSQL("ALTER TABLE evento_creato_calendario ADD COLUMN arrivoIcona TEXT")
+    }
+}
+
+/**
+ * Aggiunge l'id del Template usato (vedi EsecuzioneCreataEntity.templateId), necessario per
+ * "Ripeti" in Eventi creati: a differenza di templateNome/templateColore non è congelato, serve a
+ * ritrovare il Template vivo. Null per tutte le righe esistenti (nessun dato pregresso da cui
+ * derivarlo): quelle esecuzioni restano semplicemente senza "Ripeti" disponibile.
+ */
+val MIGRATION_17_18: Migration = object : Migration(17, 18) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE esecuzione_creata ADD COLUMN templateId TEXT")
     }
 }

@@ -276,7 +276,7 @@ fun AppNavigation(pinchZoomAbilitato: Boolean, onAlternaPinchZoom: () -> Unit) {
             composable(Sezione.Luoghi.route) { LuoghiScreen() }
             composable(Sezione.Template.route) { TemplateScreen() }
             composable(Sezione.Esecuzione.route) { EsecuzioneScreen() }
-            composable(Sezione.EventiCreati.route) { EventiCreatiScreen() }
+            composable(Sezione.EventiCreati.route) { EventiCreatiScreen(onVaiAEsegui = { navigaASezione(Sezione.Esecuzione) }) }
         }
     }
 

@@ -28,14 +28,16 @@ class EsecuzioneCreataRepository(private val dao: EsecuzioneCreataDao) {
         posizioni: List<PosizioneEventoCreato>,
         inizioPrimoEvento: Instant,
         templateNome: String?,
-        templateColore: Int?
+        templateColore: Int?,
+        templateId: String? = null
     ) {
         dao.registraEsecuzione(
             EsecuzioneCreataEntity(
                 id = id,
                 inizioPrimoEvento = inizioPrimoEvento.toEpochMilli(),
                 templateNome = templateNome,
-                templateColore = templateColore
+                templateColore = templateColore,
+                templateId = templateId
             ),
             posizioni.map { it.toEntity(id) }
         )
@@ -55,7 +57,8 @@ private fun EsecuzioneCreataEntity.toDomain() = EsecuzioneCreata(
     id = id,
     inizioPrimoEvento = Instant.ofEpochMilli(inizioPrimoEvento),
     templateNome = templateNome,
-    templateColore = templateColore
+    templateColore = templateColore,
+    templateId = templateId
 )
 
 private fun PosizioneEventoCreato.toEntity(esecuzioneId: String) = EventoCreatoEntity(
