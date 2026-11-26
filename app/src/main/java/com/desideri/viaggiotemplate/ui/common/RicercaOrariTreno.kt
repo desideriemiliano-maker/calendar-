@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -51,6 +52,13 @@ fun RicercaOrariTreno(
     data: LocalDate,
     oraRiferimento: LocalTime = LocalTime.MIDNIGHT,
     limite: Int = 16,
+    /**
+     * Orario attorno a cui servono le corse (es. l'orario calcolato della tratta). Se presente,
+     * la ricerca prosegue a pagine finché non copre almeno un'ora dopo questo orario (vedi
+     * [RicercaOrariCoordinator.cercaCorseNellaFinestra]) e l'elenco scorre automaticamente
+     * alla prima corsa vicina a questo orario.
+     */
+    oraTarget: LocalTime? = null,
     chiaveRicerca: Any?,
     credenzialiItalo: CredenzialiItalo? = null,
     testoAzione: (CorsaScaricata) -> String,
@@ -67,7 +75,9 @@ fun RicercaOrariTreno(
     var errore by remember { mutableStateOf<String?>(null) }
     var risultati by remember { mutableStateOf<List<CorsaScaricata>>(emptyList()) }
 
-    LaunchedEffect(vettore, daStazione, aStazione, data, oraRiferimento, chiaveRicerca, credenzialiItalo) {
+    val statoLista = rememberLazyListState()
+
+    LaunchedEffect(vettore, daStazione, aStazione, data, oraRiferimento, oraTarget, chiaveRicerca, credenzialiItalo) {
         if (client == null) {
             inCorso = false
             errore = "Nessuna integrazione disponibile per il vettore $vettore."
@@ -76,9 +86,20 @@ fun RicercaOrariTreno(
         inCorso = true
         errore = null
         try {
-            val corse = RicercaOrariCoordinator.cercaCorse(client, vettore, daStazione, aStazione, data, oraRiferimento, limite)
+            val corse = if (oraTarget != null) {
+                RicercaOrariCoordinator.cercaCorseNellaFinestra(
+                    client, vettore, daStazione, aStazione, data,
+                    oraDa = oraRiferimento, oraFinoA = oraTarget.plusHours(1), limite = limite
+                )
+            } else {
+                RicercaOrariCoordinator.cercaCorse(client, vettore, daStazione, aStazione, data, oraRiferimento, limite)
+            }
             risultati = corse
             onRisultati(corse)
+            if (oraTarget != null) {
+                val indice = indiceCorsaVicina(corse, oraTarget)
+                if (indice > 0) statoLista.scrollToItem(indice)
+            }
             if (corse.isEmpty()) errore = "Nessuna corsa trovata per questa data."
         } catch (e: Exception) {
             errore = "Impossibile scaricare gli orari: ${e.message ?: "errore di rete"}"
@@ -94,7 +115,7 @@ fun RicercaOrariTreno(
         Text(msg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 12.dp))
     }
 
-    LazyColumn(modifier = modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    LazyColumn(modifier = modifier.padding(top = 8.dp), state = statoLista, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(risultati) { corsa ->
             val abilitata = azioneAbilitata(corsa)
             val colore = if (abilitata) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -122,4 +143,16 @@ fun RicercaOrariTreno(
             }
         }
     }
+}
+
+/**
+ * Indice della corsa da mostrare in cima quando l'elenco si apre attorno a [oraTarget]: la prima
+ * che parte al più 15 minuti prima di quell'orario, così restano visibili anche un paio di
+ * alternative immediatamente precedenti. Se nessuna parte così tardi, l'ultima dell'elenco.
+ */
+fun indiceCorsaVicina(corse: List<CorsaScaricata>, oraTarget: LocalTime): Int {
+    if (corse.isEmpty()) return 0
+    val soglia = oraTarget.minusMinutes(15)
+    val indice = corse.indexOfFirst { !it.partenza.isBefore(soglia) }
+    return if (indice >= 0) indice else corse.lastIndex
 }

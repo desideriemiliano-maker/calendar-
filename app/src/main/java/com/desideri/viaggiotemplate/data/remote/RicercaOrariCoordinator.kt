@@ -110,6 +110,43 @@ object RicercaOrariCoordinator {
         }
     }
 
+    /**
+     * Corse che coprono la finestra [oraDa]..[oraFinoA]: le fonti restituiscono al massimo
+     * [limite] corse a partire dall'ora di riferimento, e su una linea frequentata (es. le S-Bahn
+     * ticinesi, una corsa ogni pochi minuti) 16 corse possono esaurirsi PRIMA dell'orario che
+     * interessa — il sintomo era un elenco di sole corse di 1-2 ore prima, inutilizzabili. Se
+     * l'ultima corsa ricevuta parte ancora prima di [oraFinoA], si chiede una pagina successiva
+     * a partire da lì (al massimo [pagineMassime] richieste, ognuna passando da [cercaCorse] con
+     * cache e limitazione della concorrenza). Il risultato è ordinato per partenza e senza duplicati.
+     */
+    suspend fun cercaCorseNellaFinestra(
+        client: ClientOrariTreno,
+        vettore: Vettore,
+        daStazione: String,
+        aStazione: String,
+        data: LocalDate,
+        oraDa: LocalTime,
+        oraFinoA: LocalTime,
+        limite: Int,
+        pagineMassime: Int = 4
+    ): List<CorsaScaricata> {
+        val raccolte = LinkedHashMap<Triple<LocalTime, LocalTime, String>, CorsaScaricata>()
+        var cursore = oraDa
+        for (pagina in 0 until pagineMassime) {
+            val corse = cercaCorse(client, vettore, daStazione, aStazione, data, cursore, limite)
+            // Le corse dopo la mezzanotte (giorno successivo) hanno un orario "minore" del cursore:
+            // non appartengono alla finestra richiesta e farebbero ripartire il paging da capo.
+            val valide = corse.filter { !it.partenza.isBefore(cursore) }
+            valide.forEach { raccolte.putIfAbsent(Triple(it.partenza, it.arrivo, it.etichetta), it) }
+            val ultimaPartenza = valide.maxOfOrNull { it.partenza } ?: break
+            if (!ultimaPartenza.isBefore(oraFinoA)) break
+            val prossimo = ultimaPartenza.plusMinutes(1)
+            if (!prossimo.isAfter(cursore)) break
+            cursore = prossimo
+        }
+        return raccolte.values.sortedBy { it.partenza }
+    }
+
     /** Almeno [STAGGER_MINIMO_MS] tra l'avvio di due richieste di rete consecutive, indipendentemente da quanti permessi il semaforo lascerebbe liberi subito. */
     private suspend fun staggerMinimo() {
         mutexStagger.withLock {

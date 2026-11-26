@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -55,10 +56,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
+import com.desideri.viaggiotemplate.data.remote.RicercaOrariCoordinator
 import com.desideri.viaggiotemplate.data.remote.clientOrariPer
 import com.desideri.viaggiotemplate.domain.calcolo.EventoCalcolato
 import com.desideri.viaggiotemplate.domain.calcolo.toStringHHmm
-import com.desideri.viaggiotemplate.domain.log.AttivitaLogger
 import com.desideri.viaggiotemplate.domain.model.Notifica
 import com.desideri.viaggiotemplate.domain.model.OrarioFisso
 import com.desideri.viaggiotemplate.domain.model.TemplateSlot
@@ -73,9 +74,8 @@ import com.desideri.viaggiotemplate.ui.common.RicercaOrariTreno
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
 import com.desideri.viaggiotemplate.ui.common.SelettoreNotifica
 import com.desideri.viaggiotemplate.ui.common.descrizioneFonteOrari
-import kotlinx.coroutines.Dispatchers
+import com.desideri.viaggiotemplate.ui.common.indiceCorsaVicina
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
@@ -428,7 +428,8 @@ private fun SelettoreOrarioAncora(
             daStazione = tratta.luogoPartenza,
             aStazione = tratta.luogoArrivo,
             data = data,
-            oraRiferimento = inizio.minusHours(2),
+            oraRiferimento = inizio.minusHours(1),
+            oraTarget = inizio,
             onScelto = { corsa -> onCambia(corsa.partenza, corsa.arrivo); mostraDialogOrarioReale = false },
             onDismiss = { mostraDialogOrarioReale = false }
         )
@@ -498,7 +499,8 @@ private fun SelettoreOrarioAncoraVettoreAltro(
                     daStazione = tratta.luogoPartenza,
                     aStazione = tratta.luogoArrivo,
                     data = data,
-                    oraRiferimento = orarioIndicativo.minusHours(2),
+                    oraRiferimento = orarioIndicativo.minusHours(1),
+                    oraTarget = orarioIndicativo,
                     onScelto = { corsa -> onCambia(corsa.partenza, corsa.arrivo); mostraDialogOrarioReale = false },
                     onDismiss = { mostraDialogOrarioReale = false }
                 )
@@ -519,6 +521,7 @@ private fun DialogScaricaOrarioTrenoSingolo(
     aStazione: String,
     data: LocalDate,
     oraRiferimento: LocalTime,
+    oraTarget: LocalTime,
     onScelto: (CorsaScaricata) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -539,6 +542,7 @@ private fun DialogScaricaOrarioTrenoSingolo(
                     data = data,
                     oraRiferimento = oraRiferimento,
                     limite = 16,
+                    oraTarget = oraTarget,
                     chiaveRicerca = Unit,
                     credenzialiItalo = AppContainer.italoCredentialsStore.credenziali,
                     testoAzione = { "" },
@@ -793,17 +797,20 @@ private fun CardEvento(
                         caricamentoOrarioReale = true
                         scope.launch {
                             try {
-                                val corse = withContext(Dispatchers.IO) {
-                                    AttivitaLogger.misura("$vettoreConOrariReali: ricerca corse ${evento.tratta.luogoPartenza} -> ${evento.tratta.luogoArrivo}") {
-                                        client.cercaCorse(
-                                            daStazione = evento.tratta.luogoPartenza,
-                                            aStazione = evento.tratta.luogoArrivo,
-                                            data = data,
-                                            oraRiferimento = evento.inizioReale.minusHours(3),
-                                            limite = 16
-                                        )
-                                    }
-                                }
+                                // Finestra centrata sull'orario della tratta (da 1h prima a 1h dopo),
+                                // scaricata a pagine se serve: partendo da 3h prima con un limite di
+                                // 16 corse, su linee frequenti l'elenco si esauriva PRIMA dell'orario
+                                // della tratta, mostrando solo corse inutilizzabili.
+                                val corse = RicercaOrariCoordinator.cercaCorseNellaFinestra(
+                                    client = client,
+                                    vettore = vettoreConOrariReali,
+                                    daStazione = evento.tratta.luogoPartenza,
+                                    aStazione = evento.tratta.luogoArrivo,
+                                    data = data,
+                                    oraDa = evento.inizioReale.minusHours(1),
+                                    oraFinoA = evento.inizioReale.plusHours(1),
+                                    limite = 16
+                                )
                                 if (corse.isEmpty()) {
                                     erroreOrarioReale = "Nessuna corsa trovata per questa data."
                                 } else {
@@ -842,6 +849,7 @@ private fun CardEvento(
             vettoreNome = vettoreConOrariReali?.name ?: "",
             corse = corse,
             consigliata = consigliata,
+            oraTarget = evento.inizioReale,
             onConferma = { scelta ->
                 onConfermaOrarioReale(corse, scelta)
                 corseDaConfermare = null
@@ -1032,8 +1040,9 @@ private fun RigaOpzioneConfronto(
                 daStazione = opzione.tratta.luogoPartenza,
                 aStazione = opzione.tratta.luogoArrivo,
                 data = data,
-                oraRiferimento = opzione.inizioReale.minusHours(2),
+                oraRiferimento = opzione.inizioReale.minusHours(1),
                 limite = 16,
+                oraTarget = opzione.inizioReale,
                 chiaveRicerca = opzione.tratta.id,
                 credenzialiItalo = credenzialiItalo,
                 onRisultati = { corseCaricate = it },
@@ -1087,9 +1096,16 @@ private fun DialogConfermaOrarioReale(
     vettoreNome: String,
     corse: List<CorsaScaricata>,
     consigliata: CorsaScaricata?,
+    oraTarget: LocalTime,
     onConferma: (CorsaScaricata) -> Unit,
     onDismiss: () -> Unit
 ) {
+    // Apre l'elenco sulla corsa consigliata, o in mancanza su quelle vicine all'orario della
+    // tratta, invece che sulle prime (piu' vecchie) della finestra scaricata.
+    val statoLista = rememberLazyListState(
+        initialFirstVisibleItemIndex = corse.indexOf(consigliata).takeIf { it >= 0 }
+            ?: indiceCorsaVicina(corse, oraTarget)
+    )
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
             Column(modifier = Modifier.padding(24.dp).heightIn(max = 520.dp)) {
@@ -1103,7 +1119,7 @@ private fun DialogConfermaOrarioReale(
                     modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
                 )
 
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                LazyColumn(state = statoLista, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(corse) { corsa ->
                         val eConsigliata = corsa == consigliata
                         Card(
