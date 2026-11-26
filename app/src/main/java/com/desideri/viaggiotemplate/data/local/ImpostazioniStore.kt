@@ -26,9 +26,19 @@ class ImpostazioniStore(context: Context) {
         get() = prefs.getBoolean(CHIAVE_PINCH_ZOOM_ABILITATO, false)
         set(value) = prefs.edit().putBoolean(CHIAVE_PINCH_ZOOM_ABILITATO, value).apply()
 
+    /**
+     * Scelta preselezionata (ma sempre modificabile) nel popup "Rendi privati?" mostrato a ogni
+     * esportazione .ics (vedi `DialogScegliPrivacyExport` in EventiCreatiScreen): disattivata di
+     * default, come CLASS:PRIVATE nel file generato - vedi [com.desideri.viaggiotemplate.domain.calendar.generaIcs].
+     */
+    var eventiPrivatiDiDefault: Boolean
+        get() = prefs.getBoolean(CHIAVE_EVENTI_PRIVATI_DI_DEFAULT, false)
+        set(value) = prefs.edit().putBoolean(CHIAVE_EVENTI_PRIVATI_DI_DEFAULT, value).apply()
+
     private companion object {
         const val CHIAVE_CALENDARIO_ID = "calendario_selezionato_id"
         const val CHIAVE_FATTORE_ZOOM = "fattore_zoom_ui"
         const val CHIAVE_PINCH_ZOOM_ABILITATO = "pinch_zoom_abilitato"
+        const val CHIAVE_EVENTI_PRIVATI_DI_DEFAULT = "eventi_privati_di_default"
     }
 }

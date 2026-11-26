@@ -1,6 +1,7 @@
 package com.desideri.viaggiotemplate.ui.template
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,30 +12,28 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.data.local.entities.TemplateEntity
 import com.desideri.viaggiotemplate.domain.model.Notifica
@@ -58,9 +58,14 @@ import com.desideri.viaggiotemplate.domain.model.Tratta
 import com.desideri.viaggiotemplate.ui.common.AzioneMenuCard
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogConfermaEliminazione
+import com.desideri.viaggiotemplate.ui.common.DragDropListState
 import com.desideri.viaggiotemplate.ui.common.MenuAzioniCard
 import com.desideri.viaggiotemplate.ui.common.SelettoreColore
 import com.desideri.viaggiotemplate.ui.common.SelettoreNotificaConEreditarieta
+import com.desideri.viaggiotemplate.ui.common.dragDropItem
+import com.desideri.viaggiotemplate.ui.common.dragHandle
+import com.desideri.viaggiotemplate.ui.common.rememberDragDropListState
+import com.desideri.viaggiotemplate.ui.common.rememberListaRiordinabile
 import com.desideri.viaggiotemplate.ui.mappa.TemplateMappaScreen
 import java.util.UUID
 
@@ -173,14 +178,20 @@ private fun ListaTemplate(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
         )
         ContatoreElementi(mostrati = templateFiltrati.size, totale = templateEntities.size)
+        val lazyListState = rememberLazyListState()
+        val (templateVisibili, dragDropListState) = rememberListaRiordinabile(templateFiltrati, lazyListState) { entity, direzione ->
+            onSposta(entity, direzione)
+        }
         LazyColumn(
+            state = lazyListState,
+            userScrollEnabled = dragDropListState.draggingItemIndex == null,
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-        itemsIndexed(templateFiltrati, key = { _, entity -> entity.id }) { indice, entity ->
+        itemsIndexed(templateVisibili, key = { _, entity -> entity.id }) { indice, entity ->
             Card(
                 onClick = { onModifica(entity) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().dragDropItem(dragDropListState, indice),
                 colors = entity.colore?.let {
                     CardDefaults.cardColors(containerColor = Color(it), contentColor = Color(0xFF1B1B1B))
                 } ?: CardDefaults.cardColors()
@@ -196,12 +207,12 @@ private fun ListaTemplate(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    IconButton(onClick = { onSposta(entity, -1) }, enabled = indice > 0) {
-                        Icon(Icons.Filled.ArrowUpward, contentDescription = "Sposta su")
-                    }
-                    IconButton(onClick = { onSposta(entity, 1) }, enabled = indice < templateFiltrati.size - 1) {
-                        Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
-                    }
+                    Icon(
+                        Icons.Filled.DragHandle,
+                        contentDescription = "Trascina per riordinare",
+                        tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.dragHandle(dragDropListState, indice)
+                    )
                     MenuAzioniCard(
                         listOf(
                             AzioneMenuCard("Modifica", Icons.Filled.Edit, onClick = { onModifica(entity) }),
@@ -240,7 +251,26 @@ private fun TemplateEditorScreen(
     var slots by remember { mutableStateOf(template.slotsOrdinati) }
     var colore by remember { mutableStateOf(template.colore) }
 
+    // Un solo item {} (il nome) precede gli slot in questa LazyColumn: l'indice di layout di
+    // uno slot è quindi sempre il suo indice nella lista +1 — il delta usato per tradurre gli
+    // indici (adiacenti, vedi DragDropListState) ricevuti da onMove in indici di `slots`.
+    val indiceLayoutSlot = 1
+    val lazyListState = rememberLazyListState()
+    val dragDropListState = rememberDragDropListState(lazyListState) { da, a ->
+        val indiceOrigine = da - indiceLayoutSlot
+        val indiceDestinazione = a - indiceLayoutSlot
+        if (indiceOrigine in slots.indices && indiceDestinazione in slots.indices) {
+            slots = slots.toMutableList().apply {
+                val tmp = this[indiceOrigine]
+                this[indiceOrigine] = this[indiceDestinazione]
+                this[indiceDestinazione] = tmp
+            }.mapIndexed { i, s -> s.copy(ordine = i) }
+        }
+    }
+
     LazyColumn(
+        state = lazyListState,
+        userScrollEnabled = dragDropListState.draggingItemIndex == null,
         modifier = Modifier.padding(padding).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -252,22 +282,22 @@ private fun TemplateEditorScreen(
         }
 
         itemsIndexed(slots) { index, slot ->
+            // Tratte adiacenti nell'ordine visualizzato (non necessariamente l'"ordine" salvato,
+            // che qui coincide comunque con esso): usate solo per suggerire l'ordinamento per
+            // rilevanza nel selettore tratta di questo slot, vedi ordinatePerRilevanza.
+            val trattaPrecedente = slots.getOrNull(index - 1)
+                ?.let { prec -> tratteDisponibili.firstOrNull { it.id == prec.trattaSelezionataId } }
+            val trattaSuccessiva = slots.getOrNull(index + 1)
+                ?.let { succ -> tratteDisponibili.firstOrNull { it.id == succ.trattaSelezionataId } }
             RigaSlot(
                 slot = slot,
                 indice = index,
-                totale = slots.size,
+                dragDropListState = dragDropListState,
+                indiceLayout = index + indiceLayoutSlot,
                 tratteDisponibili = tratteDisponibili,
+                trattaPrecedente = trattaPrecedente,
+                trattaSuccessiva = trattaSuccessiva,
                 onCambia = { aggiornato -> slots = slots.mapIndexed { i, s -> if (i == index) aggiornato else s } },
-                onSposta = { direzione ->
-                    val nuovoIndice = index + direzione
-                    if (nuovoIndice in slots.indices) {
-                        slots = slots.toMutableList().apply {
-                            val tmp = this[index]
-                            this[index] = this[nuovoIndice]
-                            this[nuovoIndice] = tmp
-                        }.mapIndexed { i, s -> s.copy(ordine = i) }
-                    }
-                },
                 onRimuovi = {
                     slots = slots.filterIndexed { i, _ -> i != index }.mapIndexed { i, s -> s.copy(ordine = i) }
                 }
@@ -302,71 +332,91 @@ private fun TemplateEditorScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Ordina per rilevanza rispetto alle tratte adiacenti nel template ([trattaPrecedente]/
+ * [trattaSuccessiva], entrambe opzionali — uno slot in testa/coda o appena aggiunto può non averne):
+ * prima le tratte la cui partenza combacia con l'arrivo della tratta precedente (il proseguimento
+ * "naturale" del viaggio), poi quelle il cui arrivo combacia con la partenza della tratta
+ * successiva, poi tutte le altre — ciascun gruppo alfabetico per nome. Aiuta a trovare subito la
+ * tratta giusta in una libreria grande quando si sta componendo una catena di tappe.
+ */
+private fun List<Tratta>.ordinatePerRilevanza(trattaPrecedente: Tratta?, trattaSuccessiva: Tratta?): List<Tratta> {
+    fun punteggio(t: Tratta): Int {
+        var p = 0
+        if (trattaPrecedente != null && t.luogoPartenzaId == trattaPrecedente.luogoArrivoId) p -= 2
+        if (trattaSuccessiva != null && t.luogoArrivoId == trattaSuccessiva.luogoPartenzaId) p -= 1
+        return p
+    }
+    return sortedWith(compareBy({ punteggio(it) }, { it.nome.lowercase() }))
+}
+
 @Composable
 private fun RigaSlot(
     slot: TemplateSlot,
     indice: Int,
-    totale: Int,
+    dragDropListState: DragDropListState,
+    indiceLayout: Int,
     tratteDisponibili: List<Tratta>,
+    trattaPrecedente: Tratta?,
+    trattaSuccessiva: Tratta?,
     onCambia: (TemplateSlot) -> Unit,
-    onSposta: (Int) -> Unit,
     onRimuovi: () -> Unit
 ) {
-    var espansoSelettore by remember { mutableStateOf(false) }
-    var espansoCandidati by remember { mutableStateOf(false) }
+    var mostraSelettore by remember { mutableStateOf(false) }
+    var mostraCandidati by remember { mutableStateOf(false) }
 
     val trattaSelezionata = tratteDisponibili.firstOrNull { it.id == slot.trattaSelezionataId }
+    val tratteOrdinate = remember(tratteDisponibili, trattaPrecedente, trattaSuccessiva) {
+        tratteDisponibili.ordinatePerRilevanza(trattaPrecedente, trattaSuccessiva)
+    }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth().dragDropItem(dragDropListState, indiceLayout)) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("${indice + 1}.", style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+                Text("${indice + 1}.", style = MaterialTheme.typography.titleSmall)
                 Text(
                     trattaSelezionata?.nome ?: "Scegli una tratta",
                     modifier = Modifier.weight(1f).padding(start = 8.dp),
-                    style = androidx.compose.material3.MaterialTheme.typography.bodyLarge
+                    style = MaterialTheme.typography.bodyLarge
                 )
-                IconButton(onClick = { onSposta(-1) }, enabled = indice > 0) {
-                    Icon(Icons.Filled.ArrowUpward, contentDescription = "Sposta su")
-                }
-                IconButton(onClick = { onSposta(1) }, enabled = indice < totale - 1) {
-                    Icon(Icons.Filled.ArrowDownward, contentDescription = "Sposta giù")
-                }
+                Icon(
+                    Icons.Filled.DragHandle,
+                    contentDescription = "Trascina per riordinare",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.dragHandle(dragDropListState, indiceLayout)
+                )
                 IconButton(onClick = onRimuovi) {
                     Icon(Icons.Filled.Close, contentDescription = "Rimuovi")
                 }
             }
 
-            ExposedDropdownMenuBox(expanded = espansoSelettore, onExpandedChange = { espansoSelettore = it }) {
-                OutlinedTextField(
-                    value = trattaSelezionata?.nome ?: "Scegli una tratta",
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Tratta principale") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = espansoSelettore) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
-                )
-                DropdownMenu(
-                    expanded = espansoSelettore,
-                    onDismissRequest = { espansoSelettore = false },
-                    modifier = Modifier.heightIn(max = 320.dp)
-                ) {
-                    tratteDisponibili.forEach { tratta ->
-                        DropdownMenuItem(
-                            text = { Text(tratta.nome) },
-                            onClick = {
-                                onCambia(
-                                    slot.copy(
-                                        trattaSelezionataId = tratta.id,
-                                        trattaCandidatiIds = (slot.trattaCandidatiIds + tratta.id).distinct()
-                                    )
-                                )
-                                espansoSelettore = false
-                            }
-                        )
+            OutlinedTextField(
+                value = trattaSelezionata?.nome ?: "Scegli una tratta",
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Tratta principale") },
+                trailingIcon = {
+                    IconButton(onClick = { mostraSelettore = true }) {
+                        Icon(Icons.Filled.Search, contentDescription = "Cerca tratta")
                     }
-                }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (mostraSelettore) {
+                DialogSelettoreTratta(
+                    titolo = "Scegli una tratta",
+                    tratte = tratteOrdinate,
+                    onSeleziona = { tratta ->
+                        onCambia(
+                            slot.copy(
+                                trattaSelezionataId = tratta.id,
+                                trattaCandidatiIds = (slot.trattaCandidatiIds + tratta.id).distinct()
+                            )
+                        )
+                        mostraSelettore = false
+                    },
+                    onDismiss = { mostraSelettore = false }
+                )
             }
 
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -380,30 +430,143 @@ private fun RigaSlot(
                 onCambia = { onCambia(slot.copy(notificaOverride = it)) }
             )
 
-            TextButton(onClick = { espansoCandidati = true }) {
+            TextButton(onClick = { mostraCandidati = true }) {
                 Text("Alternative per questo slot (${slot.trattaCandidatiIds.size})")
             }
-            DropdownMenu(
-                expanded = espansoCandidati,
-                onDismissRequest = { espansoCandidati = false },
-                modifier = Modifier.heightIn(max = 320.dp)
-            ) {
-                tratteDisponibili.forEach { tratta ->
-                    val selezionata = tratta.id in slot.trattaCandidatiIds
-                    DropdownMenuItem(
-                        text = { Text((if (selezionata) "✓ " else "") + tratta.nome) },
-                        onClick = {
-                            val nuoviCandidati = if (selezionata) {
-                                slot.trattaCandidatiIds - tratta.id
-                            } else {
-                                slot.trattaCandidatiIds + tratta.id
-                            }
-                            onCambia(slot.copy(trattaCandidatiIds = nuoviCandidati.distinct()))
+            if (mostraCandidati) {
+                DialogSelettoreAlternative(
+                    tratte = tratteOrdinate,
+                    candidatiIds = slot.trattaCandidatiIds,
+                    onAlterna = { tratta ->
+                        val selezionata = tratta.id in slot.trattaCandidatiIds
+                        val nuoviCandidati = if (selezionata) {
+                            slot.trattaCandidatiIds - tratta.id
+                        } else {
+                            slot.trattaCandidatiIds + tratta.id
                         }
-                    )
+                        onCambia(slot.copy(trattaCandidatiIds = nuoviCandidati.distinct()))
+                    },
+                    onDismiss = { mostraCandidati = false }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Popup con campo di ricerca per scegliere la tratta principale di uno slot: stesso pattern del
+ * selettore template in Esegui (vedi DialogSelettoreTemplate), un Dialog con una LazyColumn vera
+ * al posto del DropdownMenu precedente (che non scorreva con tante tratte in libreria). [tratte]
+ * arriva già ordinata per rilevanza (vedi ordinatePerRilevanza) — qui si applica solo il filtro
+ * testuale, senza toccare quell'ordine.
+ */
+@Composable
+private fun DialogSelettoreTratta(
+    titolo: String,
+    tratte: List<Tratta>,
+    onSeleziona: (Tratta) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var ricerca by remember { mutableStateOf("") }
+    val tratteFiltrate = remember(tratte, ricerca) {
+        if (ricerca.isBlank()) tratte else tratte.filter { it.nome.contains(ricerca, ignoreCase = true) }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(24.dp).heightIn(max = 480.dp)) {
+                Text(titolo, style = MaterialTheme.typography.titleMedium)
+                CampoRicercaTratte(ricerca = ricerca, onRicercaCambiata = { ricerca = it })
+                if (tratteFiltrate.isEmpty()) {
+                    Text("Nessuna tratta trovata.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                        items(tratteFiltrate, key = { it.id }) { tratta ->
+                            Text(
+                                tratta.nome,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSeleziona(tratta) }
+                                    .padding(vertical = 12.dp)
+                            )
+                        }
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Annulla") }
                 }
             }
         }
     }
+}
+
+/**
+ * Popup con campo di ricerca per scegliere le tratte alternative di uno slot (multi-selezione a
+ * spunta, vedi TemplateSlot.trattaCandidatiIds): resta aperto finché non lo si chiude esplicitamente,
+ * a differenza di [DialogSelettoreTratta] che si chiude alla prima scelta. Stesso ordinamento per
+ * rilevanza già applicato a [tratte] dal chiamante.
+ */
+@Composable
+private fun DialogSelettoreAlternative(
+    tratte: List<Tratta>,
+    candidatiIds: List<String>,
+    onAlterna: (Tratta) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var ricerca by remember { mutableStateOf("") }
+    val tratteFiltrate = remember(tratte, ricerca) {
+        if (ricerca.isBlank()) tratte else tratte.filter { it.nome.contains(ricerca, ignoreCase = true) }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(24.dp).heightIn(max = 480.dp)) {
+                Text("Alternative per questo slot", style = MaterialTheme.typography.titleMedium)
+                CampoRicercaTratte(ricerca = ricerca, onRicercaCambiata = { ricerca = it })
+                if (tratteFiltrate.isEmpty()) {
+                    Text("Nessuna tratta trovata.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                        items(tratteFiltrate, key = { it.id }) { tratta ->
+                            val selezionata = tratta.id in candidatiIds
+                            Row(
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onAlterna(tratta) }
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                Checkbox(checked = selezionata, onCheckedChange = { onAlterna(tratta) })
+                                Text(tratta.nome)
+                            }
+                        }
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Chiudi") }
+                }
+            }
+        }
+    }
+}
+
+/** Campo di ricerca condiviso dai due dialog sopra: stesso stile (icona, pulsante per cancellare) del filtro già usato per la libreria Template/Luoghi. */
+@Composable
+private fun CampoRicercaTratte(ricerca: String, onRicercaCambiata: (String) -> Unit) {
+    OutlinedTextField(
+        value = ricerca,
+        onValueChange = onRicercaCambiata,
+        label = { Text("Cerca") },
+        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+        trailingIcon = {
+            if (ricerca.isNotEmpty()) {
+                IconButton(onClick = { onRicercaCambiata("") }) {
+                    Icon(Icons.Filled.Close, contentDescription = "Cancella ricerca")
+                }
+            }
+        },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp)
+    )
 }
 

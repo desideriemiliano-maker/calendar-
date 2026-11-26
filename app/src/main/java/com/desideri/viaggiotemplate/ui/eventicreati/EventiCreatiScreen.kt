@@ -78,11 +78,14 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.desideri.viaggiotemplate.domain.calendar.EsecuzioneCreata
+import com.desideri.viaggiotemplate.domain.calendar.EventoCreato
 import com.desideri.viaggiotemplate.domain.calendar.RisultatoEliminazioneEventi
 import com.desideri.viaggiotemplate.domain.calendar.avviaNavigazioneAuto
 import com.desideri.viaggiotemplate.domain.calendar.dataViaggio
+import com.desideri.viaggiotemplate.ui.AppContainer
 import com.desideri.viaggiotemplate.ui.common.ContatoreElementi
 import com.desideri.viaggiotemplate.ui.common.DialogSelettoreData
+import com.desideri.viaggiotemplate.ui.esecuzione.RichiestaRipetiEsecuzione
 import com.desideri.viaggiotemplate.ui.mappa.EsecuzioneMappaScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -170,7 +173,7 @@ private fun condividiIcs(context: Context, scope: CoroutineScope, ottieniUri: su
 }
 
 @Composable
-fun EventiCreatiScreen() {
+fun EventiCreatiScreen(onVaiAEsegui: () -> Unit = {}) {
     val viewModel: EventiCreatiViewModel = viewModel(factory = EventiCreatiViewModelFactory.get())
     val stato by viewModel.stato.collectAsState()
     val context = LocalContext.current
@@ -224,7 +227,7 @@ fun EventiCreatiScreen() {
                         Text("Consenti accesso al calendario")
                     }
                 } else if (stato.esecuzioneSelezionata == null) {
-                    PannelloRicerca(stato = stato, viewModel = viewModel, context = context)
+                    PannelloRicerca(stato = stato, viewModel = viewModel, context = context, onVaiAEsegui = onVaiAEsegui)
                 } else {
                     PannelloDettaglio(stato = stato, viewModel = viewModel, context = context, onMostraMappa = { mostraMappa = true })
                 }
@@ -238,9 +241,11 @@ fun EventiCreatiScreen() {
 }
 
 @Composable
-private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: EventiCreatiViewModel, context: Context) {
+private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: EventiCreatiViewModel, context: Context, onVaiAEsegui: () -> Unit) {
     var mostraSelettoreData by remember { mutableStateOf(false) }
     var esecuzioneDaEliminare by remember { mutableStateOf<EsecuzioneCreata?>(null) }
+    var esecuzioneDaEsportare by remember { mutableStateOf<EsecuzioneCreata?>(null) }
+    var esecuzioneDaRipetere by remember { mutableStateOf<EsecuzioneCreata?>(null) }
     val scope = rememberCoroutineScope()
 
     Text(
@@ -342,9 +347,8 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
                                     CardEsecuzioneCreata(
                                         esecuzione = esecuzione,
                                         onClick = { viewModel.selezionaEsecuzione(context, esecuzione) },
-                                        onEsporta = {
-                                            condividiIcs(context, scope) { viewModel.esportaEsecuzione(context, esecuzione) }
-                                        },
+                                        onEsporta = { esecuzioneDaEsportare = esecuzione },
+                                        onRipeti = if (esecuzione.templateId != null) { { esecuzioneDaRipetere = esecuzione } } else null,
                                         onElimina = { esecuzioneDaEliminare = esecuzione }
                                     )
                                 }
@@ -365,10 +369,42 @@ private fun ColumnScope.PannelloRicerca(stato: StatoEventiCreati, viewModel: Eve
             onAnnulla = { esecuzioneDaEliminare = null }
         )
     }
+
+    esecuzioneDaEsportare?.let { esecuzione ->
+        DialogScegliPrivacyExport(
+            defaultPrivato = AppContainer.impostazioniStore.eventiPrivatiDiDefault,
+            onConferma = { privato ->
+                condividiIcs(context, scope) { viewModel.esportaEsecuzione(context, esecuzione, privato) }
+                esecuzioneDaEsportare = null
+            },
+            onAnnulla = { esecuzioneDaEsportare = null }
+        )
+    }
+
+    esecuzioneDaRipetere?.let { esecuzione ->
+        val templateId = esecuzione.templateId
+        if (templateId != null) {
+            DialogSelettoreData(
+                dataIniziale = esecuzione.dataViaggio(),
+                onConferma = { nuovaData ->
+                    RichiestaRipetiEsecuzione.richiedi(templateId, nuovaData)
+                    esecuzioneDaRipetere = null
+                    onVaiAEsegui()
+                },
+                onDismiss = { esecuzioneDaRipetere = null }
+            )
+        }
+    }
 }
 
 @Composable
-private fun CardEsecuzioneCreata(esecuzione: EsecuzioneCreata, onClick: () -> Unit, onEsporta: () -> Unit, onElimina: () -> Unit) {
+private fun CardEsecuzioneCreata(
+    esecuzione: EsecuzioneCreata,
+    onClick: () -> Unit,
+    onEsporta: () -> Unit,
+    onRipeti: (() -> Unit)?,
+    onElimina: () -> Unit
+) {
     val coloreSfondo = esecuzione.templateColore?.let { Color(it) }
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -399,6 +435,15 @@ private fun CardEsecuzioneCreata(esecuzione: EsecuzioneCreata, onClick: () -> Un
                         text = { Text("Esporta (.ics)") },
                         onClick = { menuAperto = false; onEsporta() }
                     )
+                    // Assente (non solo disabilitata) per le esecuzioni senza templateId: scritte
+                    // prima di questo campo, o il cui Template è stato eliminato nel frattempo -
+                    // "Ripeti" non ha nulla da ricaricare in nessuno dei due casi.
+                    if (onRipeti != null) {
+                        DropdownMenuItem(
+                            text = { Text("Ripeti") },
+                            onClick = { menuAperto = false; onRipeti() }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Elimina") },
                         onClick = { menuAperto = false; onElimina() }
@@ -431,6 +476,33 @@ private fun DialogConfermaEliminazioneEsecuzione(
             }
         },
         confirmButton = { TextButton(onClick = { onConferma(eliminaAncheCalendario) }) { Text("Elimina") } },
+        dismissButton = { TextButton(onClick = onAnnulla) { Text("Annulla") } }
+    )
+}
+
+/**
+ * Chiesto a ogni esportazione .ics (sia per l'intera esecuzione sia per un singolo evento): se
+ * rendere privati gli eventi esportati (CLASS:PRIVATE, vedi IcsExporter.generaIcs), con la scelta
+ * preselezionata da [defaultPrivato] (impostazione "Eventi privati per default" nel menu principale)
+ * ma sempre modificabile al volo per questa singola esportazione.
+ */
+@Composable
+private fun DialogScegliPrivacyExport(
+    defaultPrivato: Boolean,
+    onConferma: (privato: Boolean) -> Unit,
+    onAnnulla: () -> Unit
+) {
+    var privato by remember { mutableStateOf(defaultPrivato) }
+    AlertDialog(
+        onDismissRequest = onAnnulla,
+        title = { Text("Esporta .ics") },
+        text = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = privato, onCheckedChange = { privato = it })
+                Text("Rendi privati gli eventi esportati")
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConferma(privato) }) { Text("Esporta") } },
         dismissButton = { TextButton(onClick = onAnnulla) { Text("Annulla") } }
     )
 }
@@ -473,6 +545,7 @@ private fun DialogErroreEliminazioneCalendario(errore: RisultatoEliminazioneEven
 @Composable
 private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: EventiCreatiViewModel, context: Context, onMostraMappa: () -> Unit) {
     val scope = rememberCoroutineScope()
+    var eventoDaEsportare by remember { mutableStateOf<EventoCreato?>(null) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { viewModel.tornaAiRisultati() }) {
             Icon(Icons.Filled.ArrowBack, contentDescription = "Torna ai risultati")
@@ -546,9 +619,7 @@ private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: E
                                     Icon(Icons.Filled.Directions, contentDescription = "Avvia navigazione verso $indirizzo")
                                 }
                             }
-                            IconButton(onClick = {
-                                condividiIcs(context, scope) { viewModel.esportaEvento(context, evento) }
-                            }) {
+                            IconButton(onClick = { eventoDaEsportare = evento }) {
                                 Icon(Icons.Filled.Share, contentDescription = "Esporta questo evento (.ics)")
                             }
                         }
@@ -567,5 +638,16 @@ private fun ColumnScope.PannelloDettaglio(stato: StatoEventiCreati, viewModel: E
                 }
             }
         }
+    }
+
+    eventoDaEsportare?.let { evento ->
+        DialogScegliPrivacyExport(
+            defaultPrivato = AppContainer.impostazioniStore.eventiPrivatiDiDefault,
+            onConferma = { privato ->
+                condividiIcs(context, scope) { viewModel.esportaEvento(context, evento, privato) }
+                eventoDaEsportare = null
+            },
+            onAnnulla = { eventoDaEsportare = null }
+        )
     }
 }

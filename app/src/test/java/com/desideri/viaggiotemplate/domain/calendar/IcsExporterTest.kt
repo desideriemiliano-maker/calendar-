@@ -127,6 +127,20 @@ class IcsExporterTest {
         assertTrue(ics.contains("DTSTART:20260615T080000Z"))
     }
 
+    // --- Privacy (CLASS) -------------------------------------------------------------------------
+
+    @Test
+    fun `privato true aggiunge CLASS PRIVATE al VEVENT`() {
+        val ics = generaIcs(listOf(evento()), privato = true)
+        assertTrue(ics.contains("CLASS:PRIVATE"))
+    }
+
+    @Test
+    fun `privato false (il default) non scrive alcuna proprieta' CLASS`() {
+        val ics = generaIcs(listOf(evento()))
+        assertFalse(ics.contains("CLASS:"))
+    }
+
     // --- Promemoria come VALARM -------------------------------------------------------------------
 
     @Test

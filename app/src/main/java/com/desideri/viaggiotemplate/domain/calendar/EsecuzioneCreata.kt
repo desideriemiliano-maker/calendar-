@@ -14,7 +14,9 @@ data class EsecuzioneCreata(
     val id: String,
     val inizioPrimoEvento: Instant,
     val templateNome: String? = null,
-    val templateColore: Int? = null
+    val templateColore: Int? = null,
+    /** Id del Template usato, per "Ripeti" (vedi EventiCreatiScreen): null se scritta prima di questo campo o se il Template non esiste più. */
+    val templateId: String? = null
 )
 
 /** Data (senza orario) del viaggio a cui appartiene questa esecuzione, nel fuso orario del dispositivo. */

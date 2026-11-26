@@ -1,6 +1,7 @@
 package com.desideri.viaggiotemplate.ui.tratte
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +18,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -28,6 +31,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
@@ -394,20 +398,14 @@ private fun SelettoreArrotondamento(
 }
 
 /**
- * Dropdown ricercabile per scegliere un Luogo tra quelli esistenti: con molti luoghi in libreria
- * scorrere un menu non filtrato diventa scomodo, quindi il campo è editabile e filtra la lista
- * (per nome o indirizzo) mentre si digita, invece del solo testo readonly di prima. Mantiene
- * sempre una voce per crearne uno al volo senza uscire dall'editor tratta — necessario perché la
- * lista Luoghi può anche essere vuota al primo utilizzo — precompilata col testo digitato quando
- * non corrisponde a nessun luogo esistente.
- *
- * Elenco ordinato alfabeticamente per nome (non per l'ordine manuale della schermata Luoghi):
- * con la ricerca a disposizione l'ordinamento serve soprattutto quando il campo è ancora vuoto
- * (appena aperto), e in quel caso l'alfabetico è quello che permette di saltare subito alla
- * lettera giusta — l'ordine manuale è pensato per scorrere la lista intera in Luoghi, non per
- * uno sguardo rapido qui.
+ * Campo che apre un popup di ricerca per scegliere un Luogo tra quelli esistenti: un DropdownMenu
+ * non scorreva correttamente con molti luoghi in libreria (stesso bug già risolto per il
+ * selettore template in Esegui, vedi DialogSelettoreTemplate), quindi qui si apre un Dialog a
+ * schermo intero con una LazyColumn vera (sempre scrollabile) e un campo di ricerca separato.
+ * Mantiene sempre una voce per crearne uno al volo senza uscire dall'editor tratta — necessario
+ * perché la lista Luoghi può anche essere vuota al primo utilizzo — precompilata col testo
+ * digitato quando non corrisponde a nessun luogo esistente.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SelettoreLuogo(
     etichetta: String,
@@ -418,11 +416,53 @@ private fun SelettoreLuogo(
     nuovoId: () -> String,
     modifier: Modifier = Modifier
 ) {
-    var espanso by remember { mutableStateOf(false) }
-    var mostraDialogNuovo by remember { mutableStateOf(false) }
+    var mostraDialog by remember { mutableStateOf(false) }
     val selezionato = luoghi.find { it.id == luogoSelezionatoId }
-    // Riparte sempre vuota quando il menu si apre (vedi onExpandedChange sotto): mostra subito la
-    // lista intera invece di filtrarla sul nome già selezionato, che nasconderebbe le alternative.
+
+    OutlinedTextField(
+        value = selezionato?.nome ?: "",
+        onValueChange = {},
+        readOnly = true,
+        label = { Text(etichetta) },
+        trailingIcon = {
+            IconButton(onClick = { mostraDialog = true }) {
+                Icon(Icons.Filled.Search, contentDescription = "Cerca luogo")
+            }
+        },
+        modifier = modifier.fillMaxWidth()
+    )
+
+    if (mostraDialog) {
+        DialogSelettoreLuogo(
+            etichetta = etichetta,
+            luoghi = luoghi,
+            luogoSelezionatoId = luogoSelezionatoId,
+            onSeleziona = { luogo -> onSeleziona(luogo); mostraDialog = false },
+            onCreaLuogo = onCreaLuogo,
+            nuovoId = nuovoId,
+            onDismiss = { mostraDialog = false }
+        )
+    }
+}
+
+/**
+ * Elenco ordinato alfabeticamente per nome (non per l'ordine manuale della schermata Luoghi): con
+ * la ricerca a disposizione l'ordinamento serve soprattutto quando il campo è ancora vuoto (appena
+ * aperto), e in quel caso l'alfabetico è quello che permette di saltare subito alla lettera giusta
+ * — l'ordine manuale è pensato per scorrere la lista intera in Luoghi, non per uno sguardo rapido
+ * qui. Filtra per nome o indirizzo mentre si digita.
+ */
+@Composable
+private fun DialogSelettoreLuogo(
+    etichetta: String,
+    luoghi: List<Luogo>,
+    luogoSelezionatoId: String,
+    onSeleziona: (Luogo) -> Unit,
+    onCreaLuogo: (Luogo) -> Unit,
+    nuovoId: () -> String,
+    onDismiss: () -> Unit
+) {
+    var mostraDialogNuovo by remember { mutableStateOf(false) }
     var ricerca by remember { mutableStateOf("") }
 
     val luoghiOrdinati = remember(luoghi) { luoghi.sortedBy { it.nome.lowercase() } }
@@ -437,45 +477,59 @@ private fun SelettoreLuogo(
     }
     val corrispondenzaEsatta = luoghiFiltrati.any { it.nome.equals(ricerca.trim(), ignoreCase = true) }
 
-    ExposedDropdownMenuBox(
-        expanded = espanso,
-        onExpandedChange = { nuovoEspanso -> espanso = nuovoEspanso; if (nuovoEspanso) ricerca = "" },
-        modifier = modifier
-    ) {
-        OutlinedTextField(
-            value = if (espanso) ricerca else (selezionato?.nome ?: ""),
-            onValueChange = { ricerca = it; espanso = true },
-            label = { Text(etichetta) },
-            placeholder = { Text("Cerca…") },
-            singleLine = true,
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = espanso) },
-            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryEditable, enabled = true)
-        )
-        DropdownMenu(
-            expanded = espanso,
-            onDismissRequest = { espanso = false },
-            modifier = Modifier.heightIn(max = 300.dp)
-        ) {
-            if (luoghiFiltrati.isEmpty()) {
-                DropdownMenuItem(text = { Text("Nessun luogo trovato") }, onClick = {}, enabled = false)
-            }
-            luoghiFiltrati.forEach { luogo ->
-                val luogoSelezionato = luogo.id == luogoSelezionatoId
-                DropdownMenuItem(
-                    text = { VoceLuogo(luogo, selezionato = luogoSelezionato) },
-                    onClick = { onSeleziona(luogo); espanso = false },
-                    modifier = if (luogoSelezionato) {
-                        Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
-                    } else {
-                        Modifier
-                    }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(24.dp).heightIn(max = 480.dp)) {
+                Text(etichetta, style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = ricerca,
+                    onValueChange = { ricerca = it },
+                    label = { Text("Cerca") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (ricerca.isNotEmpty()) {
+                            IconButton(onClick = { ricerca = "" }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Cancella ricerca")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp)
                 )
+                LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                    if (luoghiFiltrati.isEmpty()) {
+                        item { Text("Nessun luogo trovato.", style = MaterialTheme.typography.bodySmall) }
+                    }
+                    items(luoghiFiltrati, key = { it.id }) { luogo ->
+                        val luogoSelezionato = luogo.id == luogoSelezionatoId
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSeleziona(luogo) }
+                                .then(
+                                    if (luogoSelezionato) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
+                                    else Modifier
+                                )
+                                .padding(vertical = 10.dp)
+                        ) {
+                            VoceLuogo(luogo, selezionato = luogoSelezionato)
+                        }
+                    }
+                    item {
+                        if (luoghiFiltrati.isNotEmpty()) HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Text(
+                            if (ricerca.isNotBlank() && !corrispondenzaEsatta) "+ Nuovo luogo \"${ricerca.trim()}\"…" else "+ Nuovo luogo…",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { mostraDialogNuovo = true }
+                                .padding(vertical = 12.dp)
+                        )
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Annulla") }
+                }
             }
-            if (luoghiFiltrati.isNotEmpty()) HorizontalDivider()
-            DropdownMenuItem(
-                text = { Text(if (ricerca.isNotBlank() && !corrispondenzaEsatta) "+ Nuovo luogo \"${ricerca.trim()}\"…" else "+ Nuovo luogo…") },
-                onClick = { espanso = false; mostraDialogNuovo = true }
-            )
         }
     }
 

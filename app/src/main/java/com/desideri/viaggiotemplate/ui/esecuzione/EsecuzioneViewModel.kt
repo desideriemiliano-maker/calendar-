@@ -75,6 +75,13 @@ data class StatoEsecuzione(
      */
     val nomiTratta: Map<String, String> = emptyMap(),
     /**
+     * Nome dell'esecuzione (quello mostrato in Eventi creati, es. nella mappa e nella lista
+     * raggruppata per esecuzione) rinominato solo qui, senza toccare il Template anagrafico —
+     * stesso principio di [nomiTratta]: null/vuoto significa "usa il nome del Template", vedi il
+     * fallback in `EsecuzioneScreen`/`EsecuzioneViewModel.aggiungiAlCalendario`.
+     */
+    val nomeEsecuzione: String? = null,
+    /**
      * Quando una Tratta TRENO ha vettore ALTRO, l'utente sceglie qui — solo per questa esecuzione,
      * per singolo templateSlotId — quale vettore reale usare (Trenitalia/Italo/SBB): se risolve a
      * un'integrazione con orari reali (Trenitalia/SBB) sblocca la ricerca; se Italo, resta il
@@ -124,40 +131,69 @@ class EsecuzioneViewModel(
     }
 
     fun selezionaTemplate(id: String) {
-        viewModelScope.launch {
-            val template = templateRepository.getTemplate(id) ?: return@launch
-            val tratteMap = template.slots
-                .flatMap { it.trattaCandidatiIds.ifEmpty { listOf(it.trattaSelezionataId) } }
-                .distinct()
-                .mapNotNull { trattaId -> trattaRepository.getTratta(trattaId)?.let { trattaId to it } }
-                .toMap()
+        viewModelScope.launch { caricaTemplateInStato(id) }
+    }
 
-            // Per le ancore SENZA orario predefinito (es. un treno) serve un input utente:
-            // lo si inizializza a 9:00-9:30. Le ancore CON orario predefinito (tipicamente
-            // le Riunioni) non hanno bisogno di input: il loro orario si ricava sempre dalla tratta.
-            val orariAncoreInput = template.slots
-                .filter { it.ancora && tratteMap[it.trattaSelezionataId]?.orarioInizioDefault == null }
-                .associate { it.id to (LocalTime.of(9, 0) to LocalTime.of(9, 30)) }
+    /**
+     * Carica [id] e resetta ogni personalizzazione di esecuzione precedente (stessa logica usata
+     * sia da [selezionaTemplate] sia da [ripetiEsecuzione], per non duplicarla): torna il Template
+     * caricato, o null se non esiste più (es. eliminato nel frattempo).
+     */
+    private suspend fun caricaTemplateInStato(id: String): Template? {
+        val template = templateRepository.getTemplate(id) ?: return null
+        val tratteMap = template.slots
+            .flatMap { it.trattaCandidatiIds.ifEmpty { listOf(it.trattaSelezionataId) } }
+            .distinct()
+            .mapNotNull { trattaId -> trattaRepository.getTratta(trattaId)?.let { trattaId to it } }
+            .toMap()
 
-            _stato.value = _stato.value.copy(
-                templateSelezionato = template,
-                tratte = tratteMap,
-                eventiCalcolati = emptyList(),
-                ancoreManuali = emptyMap(),
-                slotEsclusi = emptySet(),
-                notificheSelezionate = emptyMap(),
-                descrizioni = emptyMap(),
-                coloriSelezionati = emptyMap(),
-                nomiTratta = emptyMap(),
-                vettoriScelti = emptyMap(),
-                orariIndicativi = emptyMap(),
-                orariAncoreInput = orariAncoreInput
-            )
-        }
+        // Per le ancore SENZA orario predefinito (es. un treno) serve un input utente:
+        // lo si inizializza a 9:00-9:30. Le ancore CON orario predefinito (tipicamente
+        // le Riunioni) non hanno bisogno di input: il loro orario si ricava sempre dalla tratta.
+        val orariAncoreInput = template.slots
+            .filter { it.ancora && tratteMap[it.trattaSelezionataId]?.orarioInizioDefault == null }
+            .associate { it.id to (LocalTime.of(9, 0) to LocalTime.of(9, 30)) }
+
+        _stato.value = _stato.value.copy(
+            templateSelezionato = template,
+            tratte = tratteMap,
+            eventiCalcolati = emptyList(),
+            ancoreManuali = emptyMap(),
+            slotEsclusi = emptySet(),
+            notificheSelezionate = emptyMap(),
+            descrizioni = emptyMap(),
+            coloriSelezionati = emptyMap(),
+            nomiTratta = emptyMap(),
+            nomeEsecuzione = null,
+            vettoriScelti = emptyMap(),
+            orariIndicativi = emptyMap(),
+            orariAncoreInput = orariAncoreInput
+        )
+        return template
     }
 
     fun aggiornaData(data: LocalDate) {
         _stato.value = _stato.value.copy(data = data)
+    }
+
+    /**
+     * Invocata da "Eventi creati" > "Ripeti": ricarica lo stesso Template usato da quell'esecuzione
+     * (per [templateId], vedi EsecuzioneCreata.templateId) per [data] e calcola subito gli orari,
+     * come se l'utente avesse scelto il template e premuto "Calcola". Riproduce lo scheletro del
+     * template coi suoi orari di default, NON eventuali personalizzazioni fatte solo per quella
+     * singola esecuzione passata (orari manuali, tratte alternative/escluse/extra): quelle non sono
+     * persistite da nessuna parte, solo il risultato finale scritto a calendario lo è.
+     */
+    fun ripetiEsecuzione(templateId: String, data: LocalDate) {
+        viewModelScope.launch {
+            val template = caricaTemplateInStato(templateId)
+            if (template == null) {
+                _stato.value = _stato.value.copy(messaggio = "Il Template usato per questa esecuzione non esiste più")
+                return@launch
+            }
+            _stato.value = _stato.value.copy(data = data)
+            eseguiCalcolo()
+        }
     }
 
     /**
@@ -223,6 +259,11 @@ class EsecuzioneViewModel(
         _stato.value = _stato.value.copy(
             nomiTratta = _stato.value.nomiTratta + (templateSlotId to nome)
         )
+    }
+
+    /** Rinomina l'esecuzione (nome mostrato in Eventi creati), solo per questa esecuzione: non tocca il Template. */
+    fun aggiornaNomeEsecuzione(nome: String) {
+        _stato.value = _stato.value.copy(nomeEsecuzione = nome)
     }
 
     /** Aggiorna il promemoria scelto per un evento, solo per questa esecuzione. */
@@ -495,6 +536,9 @@ class EsecuzioneViewModel(
             _stato.value = s.copy(messaggio = "Configura un calendario di destinazione nella sezione Impostazioni")
             return
         }
+        // Il nome scelto solo per questa esecuzione (se non vuoto) sostituisce quello del Template
+        // anagrafico ovunque serva identificare il gruppo di eventi appena creato (Eventi creati).
+        val nomeEsecuzione = s.nomeEsecuzione?.takeIf { it.isNotBlank() } ?: s.templateSelezionato?.nome
         try {
             val writer = CalendarWriter(context)
             val eventiDaScrivere = s.eventiCalcolati.map { ev ->
@@ -538,8 +582,9 @@ class EsecuzioneViewModel(
                         esecuzioneId,
                         posizioni,
                         inizioPrimoEvento,
-                        s.templateSelezionato?.nome,
-                        s.templateSelezionato?.colore
+                        nomeEsecuzione,
+                        s.templateSelezionato?.colore,
+                        s.templateSelezionato?.id
                     )
                 }
             }
@@ -550,7 +595,7 @@ class EsecuzioneViewModel(
             val notaSync = if (risultatoInserimento.calendarioSyncDisattivata) {
                 " Sincronizzazione disattivata per ${calendario.nome}: resteranno visibili solo su questo dispositivo finché non la riattivi."
             } else ""
-            val nomeTemplate = s.templateSelezionato?.nome ?: "template senza nome"
+            val nomeTemplate = nomeEsecuzione ?: "template senza nome"
             _stato.value = if (eventiConId.size == s.eventiCalcolati.size) {
                 AttivitaLogger.azioneUtente("Creati ${eventiConId.size} eventi calendario per \"$nomeTemplate\" del ${s.data}")
                 s.copy(messaggio = "${eventiConId.size} eventi aggiunti al calendario ✓$notaSync")

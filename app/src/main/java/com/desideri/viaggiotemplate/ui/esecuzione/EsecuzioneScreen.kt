@@ -20,9 +20,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -55,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.desideri.viaggiotemplate.data.local.entities.TemplateEntity
 import com.desideri.viaggiotemplate.data.remote.CorsaScaricata
 import com.desideri.viaggiotemplate.data.remote.RicercaOrariCoordinator
 import com.desideri.viaggiotemplate.data.remote.clientOrariPer
@@ -101,7 +104,18 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
         if (permessoConcesso) viewModel.aggiornaCalendarioConfigurato(context)
     }
 
-    var espansoTemplate by remember { mutableStateOf(false) }
+    // Consuma una richiesta pendente di "Ripeti" da Eventi creati (vedi RichiestaRipetiEsecuzione):
+    // riletta a ogni ricomposizione di questa schermata, non solo alla prima, perché con la
+    // navigazione a tab (saveState/restoreState) questo composable viene smontato e rimontato ad
+    // ogni cambio di tab, quindi è proprio l'evento "l'utente è appena arrivato qui" da intercettare.
+    LaunchedEffect(Unit) {
+        RichiestaRipetiEsecuzione.pendente?.let { richiesta ->
+            RichiestaRipetiEsecuzione.consumata()
+            viewModel.ripetiEsecuzione(richiesta.templateId, richiesta.data)
+        }
+    }
+
+    var mostraSelettoreTemplate by remember { mutableStateOf(false) }
     // Sollevato fuori dalla LazyColumn sottostante, come gruppiRidotti in EventiCreatiScreen: gli
     // item della lista possono essere ricomposti da zero quando escono ed entrano dal viewport
     // durante lo scroll, perdendo un remember locale — qui invece lo stato sopravvive perché vive
@@ -114,20 +128,24 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                TextButton(onClick = { espansoTemplate = true }) {
+                TextButton(onClick = { mostraSelettoreTemplate = true }) {
                     Text(stato.templateSelezionato?.nome ?: "Scegli un template")
-                }
-                DropdownMenu(expanded = espansoTemplate, onDismissRequest = { espansoTemplate = false }) {
-                    stato.templateEntities.forEach { entity ->
-                        DropdownMenuItem(
-                            text = { Text(entity.nome) },
-                            onClick = { viewModel.selezionaTemplate(entity.id); espansoTemplate = false }
-                        )
-                    }
                 }
             }
 
             if (stato.templateSelezionato != null) {
+                item {
+                    // Nome del gruppo di eventi mostrato in "Eventi creati": di default quello del
+                    // Template, modificabile qui solo per questa esecuzione (non tocca l'anagrafica,
+                    // stesso principio del nome di una singola tratta più sotto).
+                    OutlinedTextField(
+                        value = stato.nomeEsecuzione ?: stato.templateSelezionato?.nome ?: "",
+                        onValueChange = { viewModel.aggiornaNomeEsecuzione(it) },
+                        label = { Text("Nome (mostrato in Eventi)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 item {
                     Text("Data del viaggio")
                     CampoData(valore = stato.data, onValoreCambiato = { viewModel.aggiornaData(it) })
@@ -303,6 +321,73 @@ fun EsecuzioneScreen(viewModel: EsecuzioneViewModel = viewModel(factory = Esecuz
 
             stato.messaggio?.let { msg ->
                 item { Text(msg) }
+            }
+        }
+    }
+
+    if (mostraSelettoreTemplate) {
+        DialogSelettoreTemplate(
+            templateEntities = stato.templateEntities,
+            onSeleziona = { entity -> viewModel.selezionaTemplate(entity.id); mostraSelettoreTemplate = false },
+            onDismiss = { mostraSelettoreTemplate = false }
+        )
+    }
+}
+
+/**
+ * Popup con campo di ricerca per scegliere un template: sostituisce il precedente DropdownMenu
+ * (non scrollabile quando la lista supera lo spazio disponibile, inutilizzabile con molti
+ * template) con un Dialog a schermo intero che ha una LazyColumn vera, sempre scrollabile, più un
+ * filtro testuale sul nome — stesso pattern di ricerca già usato in TemplateScreen/ListaTemplate.
+ */
+@Composable
+private fun DialogSelettoreTemplate(
+    templateEntities: List<TemplateEntity>,
+    onSeleziona: (TemplateEntity) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var testoRicerca by remember { mutableStateOf("") }
+    val templateFiltrati = remember(templateEntities, testoRicerca) {
+        templateEntities.filter { testoRicerca.isBlank() || it.nome.contains(testoRicerca, ignoreCase = true) }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(24.dp).heightIn(max = 480.dp)) {
+                Text("Scegli un template", style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = testoRicerca,
+                    onValueChange = { testoRicerca = it },
+                    label = { Text("Cerca") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (testoRicerca.isNotEmpty()) {
+                            IconButton(onClick = { testoRicerca = "" }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Cancella ricerca")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp)
+                )
+                if (templateFiltrati.isEmpty()) {
+                    Text("Nessun template trovato.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                        items(templateFiltrati, key = { it.id }) { entity ->
+                            Text(
+                                entity.nome,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSeleziona(entity) }
+                                    .padding(vertical = 12.dp)
+                            )
+                        }
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Annulla") }
+                }
             }
         }
     }

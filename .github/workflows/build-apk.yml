@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - claude/drag-drop-elementi-sezioni-rlk7fa
       - ccr-7714f625-kdzvzq
 
 permissions:

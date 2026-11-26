@@ -23,7 +23,11 @@ data class CorsaScaricata(
  */
 class OrariTrasportiSvizzeriClient : ClientOrariTreno {
 
-    private val formatoData = DateTimeFormatter.ofPattern("dd-MM-yyyy")
+    // ISO (yyyy-MM-dd): il formato "dd-MM-yyyy" usato in precedenza non viene riconosciuto
+    // dall'API, che ripiega silenziosamente sull'epoch (1970-01-01) — vedi il controllo sulla
+    // risposta HTTP sotto, che ora espone l'errore reale del router invece di nascondere il
+    // problema dietro un generico "stazione non trovata".
+    private val formatoData = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     private val formatoOra = DateTimeFormatter.ofPattern("HH:mm")
 
     /**
@@ -53,6 +57,15 @@ class OrariTrasportiSvizzeriClient : ClientOrariTreno {
         connessione.connectTimeout = 8_000
         connessione.readTimeout = 20_000
         return try {
+            val codice = connessione.responseCode
+            // Su una risposta non-2xx, HttpURLConnection.inputStream lancia una
+            // FileNotFoundException il cui messaggio e' semplicemente l'URL richiesto (non il
+            // motivo del fallimento): il corpo dell'errore va letto esplicitamente da errorStream,
+            // altrimenti l'utente vede l'URL al posto di un messaggio comprensibile.
+            if (codice !in 200..299) {
+                val corpoErrore = connessione.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                throw java.io.IOException("risposta $codice da transport.opendata.ch: ${estraiMessaggioErrore(corpoErrore)}")
+            }
             val corpo = connessione.inputStream.bufferedReader().use { it.readText() }
             val json = JSONObject(corpo)
             val connessioni = json.optJSONArray("connections") ?: return emptyList()
@@ -61,6 +74,22 @@ class OrariTrasportiSvizzeriClient : ClientOrariTreno {
         } finally {
             connessione.disconnect()
         }
+    }
+
+    /**
+     * L'API restituisce errori come `{"message": "..."}` o `{"errors": [{"message": "..."}]}` a
+     * seconda del caso (es. stazione non trovata vs. parametri non validi): si prova prima il
+     * campo diretto, poi il primo elemento dell'array, con il corpo grezzo come ultima spiaggia se
+     * il formato cambia o non e' JSON.
+     */
+    private fun estraiMessaggioErrore(corpo: String): String {
+        val messaggioDiretto = runCatching { JSONObject(corpo).optString("message") }
+            .getOrNull()?.takeIf { it.isNotBlank() }
+        if (messaggioDiretto != null) return messaggioDiretto
+        val messaggioDaLista = runCatching {
+            JSONObject(corpo).optJSONArray("errors")?.optJSONObject(0)?.optString("message")
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+        return messaggioDaLista ?: corpo.take(200).ifBlank { "nessun dettaglio disponibile" }
     }
 
     private fun JSONObject.toCorsaOppureNull(): CorsaScaricata? {

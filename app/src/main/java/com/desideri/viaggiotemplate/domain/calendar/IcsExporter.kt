@@ -91,11 +91,18 @@ internal fun escapeTestoIcs(testo: String): String =
  * [adesso] è il DTSTAMP (il momento in cui QUESTA rappresentazione .ics viene generata, RFC 5545
  * §3.8.7.2 - non l'orario dell'evento): parametrizzato per poter fissare un istante nei test invece
  * di dipendere dall'orologio di sistema.
+ *
+ * [privato], se true, aggiunge `CLASS:PRIVATE` (RFC 5545 §3.8.1.3) a ogni VEVENT: il client che
+ * importa il file può usarlo per nascondere i dettagli a chi vede il calendario ma non è il
+ * proprietario (es. calendari condivisi). False (il default) non scrive affatto la proprietà CLASS
+ * invece di scrivere esplicitamente "PUBLIC" - PUBLIC è comunque il default RFC quando CLASS è
+ * assente, quindi è equivalente ed evita una riga in più nel caso comune.
  */
 fun generaIcs(
     eventi: List<EventoCreato>,
     promemoriaMinuti: Map<Long, Int> = emptyMap(),
-    adesso: Instant = Instant.now()
+    adesso: Instant = Instant.now(),
+    privato: Boolean = false
 ): String {
     val dtstamp = FORMATO_ISTANTE_UTC.format(adesso)
     val righe = mutableListOf(
@@ -116,6 +123,7 @@ fun generaIcs(
         righe += "DTSTART:${FORMATO_ISTANTE_UTC.format(evento.inizio.toInstant())}"
         righe += "DTEND:${FORMATO_ISTANTE_UTC.format(evento.fine.toInstant())}"
         righe += "SUMMARY:${escapeTestoIcs(evento.titolo)}"
+        if (privato) righe += "CLASS:PRIVATE"
         evento.indirizzoNavigazione?.let { righe += "LOCATION:${escapeTestoIcs(it)}" }
         if (evento.descrizione.isNotBlank()) righe += "DESCRIPTION:${escapeTestoIcs(evento.descrizione)}"
         promemoriaMinuti[evento.eventoId]?.takeIf { it > 0 }?.let { minuti ->
@@ -158,13 +166,14 @@ fun scriviIcsCondivisibile(
     context: Context,
     eventi: List<EventoCreato>,
     promemoriaMinuti: Map<Long, Int>,
-    nomeFileBase: String
+    nomeFileBase: String,
+    privato: Boolean = false
 ): Uri? {
     if (eventi.isEmpty()) return null
     return try {
         val directory = File(context.cacheDir, NOME_CARTELLA_EXPORT_ICS).apply { mkdirs() }
         val file = File(directory, "$nomeFileBase.ics")
-        file.writeText(generaIcs(eventi, promemoriaMinuti))
+        file.writeText(generaIcs(eventi, promemoriaMinuti, privato = privato))
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     } catch (e: Exception) {
         null

@@ -1,5 +1,6 @@
 package com.desideri.viaggiotemplate.domain.calcolo
 
+import com.desideri.viaggiotemplate.domain.model.TipoTratta
 import com.desideri.viaggiotemplate.domain.model.Tratta
 import java.time.LocalTime
 
@@ -36,14 +37,24 @@ data class EventoCalcolato(
      * vuota quando non ce l'ha — mai parentesi vuote nel titolo finale. Le parentesi sono nel
      * valore sostituito, non nel template stesso, apposta perché un template con parentesi
      * letterali intorno al placeholder le lascerebbe comunque vuote in quel caso.
+     *
+     * Per le RIUNIONE ignora `titoloTemplate` e mostra sempre "inizio nome fine": partenza e
+     * arrivo coincidono (un solo luogo), quindi il template generico con "/" fra i due
+     * produrrebbe lo stesso luogo ripetuto due volte.
      */
-    fun titolo(): String = tratta.titoloTemplate
-        .replace("{oraPartenza}", inizioReale.toStringHHmm())
-        .replace("{oraArrivo}", fineReale.toStringHHmm())
-        .replace("{luogoPartenza}", tratta.luogoPartenza)
-        .replace("{luogoArrivo}", tratta.luogoArrivo)
-        .replace("{nomeTratta}", if (tratta.nome.isNotBlank()) "(${tratta.nome})" else "")
-        .trim()
+    fun titolo(): String = if (tratta.tipo == TipoTratta.RIUNIONE) {
+        listOf(inizioReale.toStringHHmm(), tratta.nome, fineReale.toStringHHmm())
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+    } else {
+        tratta.titoloTemplate
+            .replace("{oraPartenza}", inizioReale.toStringHHmm())
+            .replace("{oraArrivo}", fineReale.toStringHHmm())
+            .replace("{luogoPartenza}", tratta.luogoPartenza)
+            .replace("{luogoArrivo}", tratta.luogoArrivo)
+            .replace("{nomeTratta}", if (tratta.nome.isNotBlank()) "(${tratta.nome})" else "")
+            .trim()
+    }
 }
 
 fun LocalTime.toStringHHmm(): String = "%02d:%02d".format(hour, minute)

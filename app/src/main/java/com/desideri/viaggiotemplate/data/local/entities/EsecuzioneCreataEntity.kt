@@ -19,5 +19,12 @@ data class EsecuzioneCreataEntity(
     @ColumnInfo(name = "dataCreazione") val inizioPrimoEvento: Long,
     /** Nome e colore del Template usato, congelati al momento della scrittura: sopravvivono a una rinomina o eliminazione successiva del Template. */
     val templateNome: String? = null,
-    val templateColore: Int? = null
+    val templateColore: Int? = null,
+    /**
+     * Id del Template usato (non congelato: a differenza di [templateNome]/[templateColore], serve
+     * a RITROVARE il Template vivo per "Ripeti" - vedi EventiCreatiScreen/EsecuzioneViewModel.ripetiEsecuzione).
+     * Null per le righe scritte prima di questa colonna, o se il Template è stato eliminato nel
+     * frattempo: in entrambi i casi "Ripeti" non è disponibile per quell'esecuzione.
+     */
+    val templateId: String? = null
 )

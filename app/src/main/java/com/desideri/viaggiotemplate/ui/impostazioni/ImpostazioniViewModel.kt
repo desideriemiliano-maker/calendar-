@@ -16,7 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 data class StatoImpostazioni(
     val calendariDisponibili: List<CalendarioDisponibile> = emptyList(),
     val calendarioSelezionatoId: Long? = null,
-    val italoUsername: String? = null
+    val italoUsername: String? = null,
+    val eventiPrivatiDiDefault: Boolean = false
 )
 
 class ImpostazioniViewModel(
@@ -24,8 +25,20 @@ class ImpostazioniViewModel(
     private val italoCredentialsStore: ItaloCredentialsStore
 ) : ViewModel() {
 
-    private val _stato = MutableStateFlow(StatoImpostazioni(italoUsername = italoCredentialsStore.credenziali?.username))
+    private val _stato = MutableStateFlow(
+        StatoImpostazioni(
+            italoUsername = italoCredentialsStore.credenziali?.username,
+            eventiPrivatiDiDefault = store.eventiPrivatiDiDefault
+        )
+    )
     val stato: StateFlow<StatoImpostazioni> = _stato.asStateFlow()
+
+    /** Alterna la scelta preselezionata nel popup "Rendi privati?" mostrato a ogni esportazione .ics. */
+    fun alternaEventiPrivatiDiDefault() {
+        val nuovoValore = !store.eventiPrivatiDiDefault
+        store.eventiPrivatiDiDefault = nuovoValore
+        _stato.value = _stato.value.copy(eventiPrivatiDiDefault = nuovoValore)
+    }
 
     /** Salva un account Italo reale, usato al posto del login guest (bloccato lato server) per cercare gli orari. */
     fun salvaCredenzialiItalo(username: String, password: String) {
